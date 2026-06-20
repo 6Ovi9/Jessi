@@ -1,0 +1,54 @@
+name: couples_watch
+description: Couples Watch — Smart watch companion app for real-time partner tracking
+
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Material Design icons
+  cupertino_icons: ^1.0.6
+
+  # BLE communication with the watch
+  flutter_reactive_ble: ^5.3.1
+
+  # GPS location tracking
+  geolocator: ^11.1.0
+
+  # Supabase client (self-hosted backend)
+  supabase_flutter: ^2.5.0
+
+  # Android Foreground Service (persistent background execution)
+  flutter_foreground_task: ^6.5.0
+
+  # Runtime permissions (BLE, GPS, etc.)
+  permission_handler: ^11.3.0
+
+  # Geo calculations (distance, bearing)
+  latlong2: ^0.9.1
+
+  # State management
+  provider: ^6.1.2
+
+  # Local storage for user preferences
+  shared_preferences: ^2.2.3
+
+  # Google Fonts for premium typography
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Assets (icons, etc.)
+  # assets:
+  #   - assets/icons/

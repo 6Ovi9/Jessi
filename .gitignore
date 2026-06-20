@@ -1,0 +1,32 @@
+# Files to ignore in Git
+
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+app/build/
+
+# Android build outputs
+*.apk
+*.aar
+*.ap_
+
+# Local/IDE configuration
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# System Files
+Thumbs.db
+db.lock
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp

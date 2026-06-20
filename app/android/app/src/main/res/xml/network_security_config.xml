@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Network Security Config -->
+<!-- Permite tráfico HTTP en claro (sin HTTPS) para conexión -->
+<!-- con Supabase self-hosted vía IP de Tailscale              -->
+<network-security-config>
+    <!-- Permitir cleartext para todas las conexiones locales -->
+    <!-- En producción, configurar solo las IPs necesarias    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

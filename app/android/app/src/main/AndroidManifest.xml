@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+    <!-- BLUETOOTH (BLE) PERMISSIONS                                         -->
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+
+    <!-- Android 12+ (API 31+): nuevos permisos BLE granulares -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- Android 11 y anteriores (API ≤30): permisos legacy BLE -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+    <!-- LOCATION (GPS) PERMISSIONS                                          -->
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Background location — Android 10+ (API 29+) -->
+    <!-- IMPORTANTE: Solicitar DESPUÉS de ACCESS_FINE_LOCATION -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+    <!-- FOREGROUND SERVICE PERMISSIONS                                      -->
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- Android 14+ (API 34+): tipos de foreground service requeridos -->
+    <!-- CRÍTICO: Declarar AMBOS tipos. Si solo se declara uno, Android    -->
+    <!-- puede matar el proceso cuando la app pasa a background.           -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+    <!-- OTHER PERMISSIONS                                                   -->
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+
+    <!-- Mantener la CPU activa durante operaciones en background -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Reiniciar el servicio tras reboot del dispositivo -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Notificaciones (Android 13+, API 33+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Internet para Supabase -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+    <!-- APPLICATION                                                         -->
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+
+    <application
+        android:label="Couples Watch"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <!-- Main Activity -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <!-- ════════════════════════════════════════════════════════════ -->
+        <!-- FOREGROUND SERVICE — flutter_foreground_task                  -->
+        <!-- ════════════════════════════════════════════════════════════ -->
+
+        <!-- Foreground Service declaration -->
+        <!-- CRITICAL: foregroundServiceType MUST include BOTH location    -->
+        <!-- AND connectedDevice for Android 14+ compatibility            -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="location|connectedDevice"
+            android:exported="false" />
+
+        <!-- Boot receiver — reiniciar el servicio tras reboot -->
+        <receiver
+            android:name="com.pravera.flutter_foreground_task.receiver.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ════════════════════════════════════════════════════════════ -->
+        <!-- META-DATA                                                     -->
+        <!-- ════════════════════════════════════════════════════════════ -->
+
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+    <!-- FEATURES                                                            -->
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+
+    <!-- BLE requerido -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+
+    <!-- GPS requerido -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="true" />
+
+</manifest>

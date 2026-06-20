@@ -1,0 +1,187 @@
+##############################################################################
+# Couples Watch — Supabase Self-Hosted Docker Compose
+# 
+# Uso:
+#   docker-compose up -d
+#
+# Acceso:
+#   - Supabase Studio:  http://localhost:3000
+#   - API REST:         http://localhost:8000
+#   - Realtime WS:      ws://localhost:4000
+#   - Desde Tailscale:  http://100.x.x.x:8000 (reemplazar con tu IP Tailscale)
+#
+# Primera ejecución:
+#   1. docker-compose up -d
+#   2. Esperar ~30s a que PostgreSQL inicie
+#   3. Ejecutar init-db.sql:
+#      docker exec -i couples-watch-postgres psql -U postgres -d postgres < init-db.sql
+##############################################################################
+
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # PostgreSQL 15 — Base de datos principal
+  # ─────────────────────────────────────────────────────────────────────────
+  postgres:
+    container_name: couples-watch-postgres
+    image: supabase/postgres:15.1.1.78
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-couples-watch-secret-2024}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # PostgREST — API REST automática desde PostgreSQL
+  # ─────────────────────────────────────────────────────────────────────────
+  rest:
+    container_name: couples-watch-rest
+    image: postgrest/postgrest:v12.0.2
+    # Internal only — accessed via nginx proxy
+    expose:
+      - "3000"
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD:-couples-watch-secret-2024}@postgres:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long-couples-watch}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Supabase Realtime — WebSockets para sync en tiempo real
+  # ─────────────────────────────────────────────────────────────────────────
+  realtime:
+    container_name: couples-watch-realtime
+    image: supabase/realtime:v2.28.32
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-couples-watch-secret-2024}
+      DB_NAME: postgres
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+      DB_ENC_KEY: supabase_realtime_enc_key_couples_watch
+      API_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long-couples-watch}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-UpNVntn3cDxHJpq99YMc1T1AQgQpc8kfYTuRgBiYa15BLrx8etQoXz3gZv1/u2oq}
+      ERL_AFLAGS: -proto_dist inet_tcp
+      ENABLE_TAILSCALE: "false"
+      DNS_NODES: "''"
+      APP_NAME: couples-watch-realtime
+      FLY_APP_NAME: couples-watch-realtime
+      FLY_ALLOC_ID: fly123
+      REPLICATION_MODE: RLS
+      REPLICATION_POLL_INTERVAL: 100
+      SECURE_CHANNELS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # GoTrue — Autenticación de usuarios
+  # ─────────────────────────────────────────────────────────────────────────
+  auth:
+    container_name: couples-watch-auth
+    image: supabase/gotrue:v2.151.0
+    ports:
+      - "9999:9999"
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:-couples-watch-secret-2024}@postgres:5432/postgres
+      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
+      GOTRUE_URI_ALLOW_LIST: ""
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long-couples-watch}
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Supabase Studio — Panel de administración web (opcional)
+  # ─────────────────────────────────────────────────────────────────────────
+  studio:
+    container_name: couples-watch-studio
+    image: supabase/studio:20240101-8e4a094
+    ports:
+      - "3000:3000"
+    environment:
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-couples-watch-secret-2024}
+      DEFAULT_ORGANIZATION_NAME: "Couples Watch"
+      DEFAULT_PROJECT_NAME: "Jessi"
+      SUPABASE_URL: http://rest:3000
+      SUPABASE_PUBLIC_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+      SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvdXBsZXMtd2F0Y2giLCJyb2xlIjoiYW5vbiIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.placeholder}
+      SUPABASE_SERVICE_KEY: ${SERVICE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvdXBsZXMtd2F0Y2giLCJyb2xlIjoic2VydmljZV9yb2xlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9.placeholder}
+    depends_on:
+      - rest
+      - auth
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # PG Meta — Metadata API para Studio
+  # ─────────────────────────────────────────────────────────────────────────
+  meta:
+    container_name: couples-watch-meta
+    image: supabase/postgres-meta:v0.80.0
+    ports:
+      - "8080:8080"
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: postgres
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-couples-watch-secret-2024}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Nginx — API Gateway (reverse proxy)
+  # ─────────────────────────────────────────────────────────────────────────
+  # Routes /rest/v1/ → PostgREST, /auth/v1/ → GoTrue, /realtime/v1/ → Realtime
+  # This makes the setup compatible with supabase_flutter SDK
+  nginx:
+    container_name: couples-watch-gateway
+    image: nginx:alpine
+    ports:
+      - "8000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - rest
+      - auth
+      - realtime
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
