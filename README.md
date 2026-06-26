@@ -1,410 +1,220 @@
-# 🎯 NEXUS HALO — Proyecto Completo
+# 🎯 NEXUS HALO — Proyecto de Reloj Inteligente para Parejas (Jessi)
 
-**Reloj inteligente parejas** con anillo LED de 12 posiciones, brújula magnética, vibración háptica y GPS en tiempo real.
+**Nexus Halo** es un sistema IoT integrado para parejas que consta de un **reloj inteligente vestible (wearable)**, una **aplicación móvil de acompañamiento en Flutter (Android)** y un **backend en tiempo real en Supabase (Docker + Tailscale)**.
+
+El reloj cuenta con una corona de 12 LEDs direccionables, brújula magnética, botón táctil capacitivo, motor de vibración háptica y conectividad BLE. A través de la app móvil y el GPS de fondo, los relojes muestran en tiempo real la **dirección física de la pareja (modo Radar)**, la **distancia (modo Distancia)**, la **hora sincronizada**, y permiten **enviar toques vibratorios instantáneos (háptica)**.
 
 ---
 
 ## 📁 Estructura del Proyecto
 
-```
-Jessi/
-├── Docs/
-│   └── description.md              ← Especificación completa (v1.1)
-│
-├── nexus_halo/                        ← 🟢 IMPLEMENTADO 100%
-│   ├── nexus_halo.ino           ← Main sketch (500+ líneas)
-│   ├── config.h                    ← Constantes globales
-│   ├── state_machine.h/.cpp        ← FSM (11 estados)
-│   ├── gesture.h/.cpp              ← Detección gestos TTP223
-│   ├── led_controller.h/.cpp       ← Control SK6812 (12 LEDs)
-│   ├── compass.h/.cpp              ← LIS3MDL magnetómetro
-│   ├── haptic.h/.cpp               ← Patrones vibración
-│   ├── ble_handler.h/.cpp          ← BLE services
-│   ├── power.h/.cpp                ← Deep sleep + power-down
-│   └── README.md                   ← Guía compilación
-│
-├── app/                             ← 🔴 PRÓXIMO (Flutter Android)
-│   ├── lib/
-│   │   ├── main.dart
-│   │   ├── services/
-│   │   │   ├── ble_service.dart
-│   │   │   ├── location_service.dart
-│   │   │   ├── sync_service.dart
-│   │   │   ├── bearing_calculator.dart
-│   │   │   └── foreground_service.dart
-│   │   ├── repositories/
-│   │   │   └── partner_repository.dart
-│   │   ├── screens/
-│   │   ├── models/
-│   │   └── widgets/
-│   ├── pubspec.yaml
-│   └── android/
-│       └── AndroidManifest.xml     ← Permisos + Foreground Service
-│
-├── backend/                         ← 🔴 PRÓXIMO (Supabase)
-│   ├── docker-compose.yml          ← Supabase self-hosted
-│   ├── init-db.sql                 ← Tablas iniciales
-│   └── README.md
-│
-└── PROYECTO.md                      ← Este archivo
-```
+El repositorio está organizado de la siguiente manera:
+
+*   [Docs/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs): Documentación de especificación técnica completa e historial de tareas.
+    *   [description_v_1_2.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs/description_v_1_2.md): Especificación técnica de referencia (versión 1.2).
+    *   [tasks.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs/tasks.md): Registro de correcciones y estado de tareas.
+*   [nexus_halo/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/nexus_halo): Firmware completo en C++ para Arduino IDE compatible con **Seeed Studio XIAO nRF52840 Sense**.
+*   [app/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/app): Aplicación de acompañamiento desarrollada en **Flutter** para Android.
+*   [backend/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/backend): Infraestructura de base de datos en contenedores Docker y configuraciones de Supabase.
+*   [diagnostico/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/diagnostico): Scripts de prueba independientes para validar la brújula y el anillo LED.
+    *   [compass_diagnostic/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/diagnostico/compass_diagnostic): Testeo de bus I2C y salida del magnetómetro LIS3MDL.
+    *   [led_diagnostic/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/diagnostico/led_diagnostic): Testeo de animación y consumo eléctrico de los LEDs SK6812.
+*   [hardware/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/hardware): Recursos de diseño del dispositivo.
+    *   [HW_REPAIR_TASKS.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/hardware/HW_REPAIR_TASKS.md): Guía física para reparar problemas del bus I2C eliminando resistencias serie.
+*   [releases/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/releases): Directorio con el ejecutable compilado listo para Android ([app-release.apk](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/releases/app-release.apk)).
 
 ---
 
-## 🟢 FIRMWARE (COMPLETADO)
+## 🟢 1. Firmware (`nexus_halo`) v1.2+
 
-### Características
+El código fuente del reloj está escrito para el chip **Seeed Studio XIAO nRF52840 Sense**. El firmware implementa una máquina de estados finita (FSM) no bloqueante con 12 estados diferentes y optimizaciones avanzadas de bajo consumo.
 
-✅ **Máquina de estados (11 estados)**
-- DEEP_SLEEP (<10µA)
-- CLOCK_CONNECTED/DISCONNECTED (reloj 3 agujas)
-- RADAR_MODE (1 LED → dirección pareja)
-- DISTANCE_MODE (LEDs 1-11 según distancia)
-- HAPTIC_TX/RX (vibración + confirmación)
-- OTA_MODE (actualización firmware)
-- ERROR_NO_GPS, LOW_BATTERY (superpuesto)
+### 🔌 Conexiones de Hardware (Esquema de Pines)
 
-✅ **Detección de gestos**
-- Tap simple, doble tap, press corto, press largo
-- Debounce 20ms
-- Double-tap window 400ms
+| Componente | Línea/Chip | Pin XIAO | Notas / Tipo de Señal |
+| :--- | :--- | :--- | :--- |
+| **Anillo LED** | 12× SK6812-MINI-E (RGB+W) | `D7` | Datos de un solo cable (NeoPixel). LED 0 a las 12h. |
+| **Alimentación LEDs** | MOSFET Gate | `D10` | `HIGH` = Activa VCC del anillo. `LOW` = Corte total para dormir. |
+| **Botón Táctil** | TTP223 | `D8` | Entrada digital (GPIO RISING para despertar). |
+| **Motor Vibración** | Driver MOSFET | `D9` | Salida digital (PWM para regular intensidad). |
+| **Magnetómetro** | LIS3MDL (Brújula) | `D4` (SDA) / `D5` (SCL) | Bus I2C personalizado. |
+| **IMU (Integrado)** | LSM6DS3TR-C | Interno (`P0.11`) | Interrupción INT1 mapeada para Wake-on-Motion. |
 
-✅ **Control LEDs (SK6812 - 12×)**
-- Reloj: horas (discreto) + minutos (discreto) + segundos (interpolado suave)
-- Radar: bearing relativo del usuario
-- Distance: colores por rango (azul/verde/amarillo/naranja/rojo)
-- Animaciones (flash, pulso, error)
+### ⚡ Gestión de Energía y Despertar Dual (`Rise-to-Wake`)
+En la versión v1.2, se implementan **dos fuentes de interrupción para despertar del modo `DEEP_SLEEP`**:
+1.  **Toque Físico:** Pulsar el botón capacitivo (`D8`).
+2.  **Giro/Levantamiento de Muñeca (`Rise-to-Wake`):** Sensor de movimiento IMU LSM6DS3.
+    *   *Trade-off de batería:* El giroscopio y el micrófono interno PDM se apagan por completo. El acelerómetro se mantiene encendido en modo de ultra bajo consumo a **26 Hz** para detectar el movimiento de giro. Esto eleva el consumo en reposo de ~8µA a ~30–35µA, reduciendo la autonomía calculada con una batería de 140mAh de **38 días a 32 días** en espera (un precio insignificante para esta funcionalidad).
+    *   *Calibración Inteligente:* El reloj incluye un sistema de calibración adaptativa. Cuando entra en modo calibración mediante la app BLE, pide al usuario hacer 5 levantamientos de muñeca seguidos. Guarda el umbral ideal (con un 80% de margen de seguridad) en la memoria Flash persistente del nRF52840 para evitar falsos positivos.
 
-✅ **Brújula (LIS3MDL)**
-- I2C custom (D4, D5)
-- Heading 0-360°
-- Calibración hard-iron + soft-iron
-- Filtro IIR suavizado
+### 🛠️ Compilación e Instalación del Firmware
 
-✅ **Vibración (Motor MOSFET)**
-- 4 patrones: RX, TX, batería, error
-- Playback no-bloqueante
-
-✅ **BLE (ArduinoBLE)**
-- Bearing, distance, haptic TX/RX
-- Radar mode active notificación
-- Battery %, config JSON
-
-✅ **Power Management**
-- Power-down LSM6DS3 (IMU) → -600µA
-- Power-down PDM (micrófono) → -600µA
-- ADC battery (0-100%)
-- Deep sleep con BLE advertising mínimo
-
-### Compilación Rápida
-
-```bash
-# Arduino IDE
-1. File → Open → nexus_halo.ino
-2. Tools → Board → Seeed XIAO nRF52840 Sense
-3. Sketch → Verify (compile)
-4. Sketch → Upload
-5. Monitor (115200 baud)
-```
-
-### Librerías Requeridas
-
-```
-Adafruit_NeoPixel
-Adafruit_LIS3MDL
-Adafruit_LSM6DS3TRC
-ArduinoBLE
-Adafruit_Sensor
-```
+1.  **Instalar placa en Arduino IDE:**
+    *   Ve a `File` ➔ `Preferences`.
+    *   En *Additional Boards Manager URLs* añade:
+        `https://files.seeedstudio.com/arduino/package_seeeduino_boards_index.json`
+    *   Ve a `Tools` ➔ `Board` ➔ `Boards Manager`, busca e instala `Seeed nRF52 Boards` (versión 2.9.1 o superior).
+2.  **Instalar librerías requeridas:**
+    *   `Adafruit NeoPixel`
+    *   `Adafruit LIS3MDL`
+    *   `Adafruit LSM6DS3TRC`
+    *   `ArduinoBLE`
+    *   `Adafruit Sensor`
+3.  **Configuración de placa en el menú de Herramientas:**
+    *   **Board:** "Seeed XIAO nRF52840 Sense"
+    *   **Port:** Puerto COM asignado a tu XIAO.
+4.  **Flashear:** Abre [nexus_halo.ino](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/nexus_halo/nexus_halo.ino), compila y sube el firmware.
 
 ---
 
-## 🔴 APP FLUTTER (PRÓXIMO)
+## 📱 2. Companion App (`app`)
 
-### Requisitos
-- **Android only** (Foreground Service para background persistent)
-- GPS + BLE + Realtime Sync
+La aplicación móvil está desarrollada con **Flutter** exclusivamente para **Android**. Esta exclusividad se debe a la necesidad de utilizar un **Android Foreground Service** persistente que no sea cerrado por el sistema de ahorro de energía del sistema operativo.
 
-### Flujo de Datos
+### 🔋 Estrategia de Localización Dinámica (`Dynamic GPS Polling`)
+Para no agotar la batería del teléfono móvil enviando coordenadas a Supabase constantemente, la aplicación monitoriza la distancia entre los usuarios en segundo plano y ajusta el intervalo de actualización GPS dinámicamente:
 
-```
-GPS (background, polling dinámico)
-  ↓ (3s / 60s / 3m / 5-10m según distancia)
-Supabase → locations table
-  ↓ (Realtime subscription)
-App pareja recibe ubicación
-  ↓ (bearing_calculator)
-BLE → BEARING_CHAR + DISTANCE_CHAR reloj
-  ↓
-Reloj muestra RADAR o DISTANCE
-```
+| Modo | Condición | Intervalo | Justificación |
+| :--- | :--- | :--- | :--- |
+| **PRECISION** | Distancia < 500m o Modo Radar activo | **3 segundos** | Alta precisión requerida para orientación cara a cara |
+| **NEAR** | Distancia < 10 km | **60 segundos** | Cobertura normal en la misma zona de rutina diaria |
+| **FAR** | Distancia 10 km – 50 km | **3 minutos** | Movimientos por el área metropolitana |
+| **REMOTE** | Distancia > 50 km | **5 a 10 minutos** | Distancia muy larga (evita el consumo innecesario) |
 
-### Paquetes Flutter
+> [!TIP]
+> Si el usuario activa el modo Radar en su reloj presionando brevemente el botón capacitivo, el firmware notifica al teléfono mediante BLE (`RADAR_ACTIVE_CHAR`), lo que fuerza instantáneamente al Foreground Service a pasar al intervalo GPS de 3 segundos para que los datos en pantalla y el anillo LED apunten a la pareja en tiempo real y sin retraso.
 
-```yaml
-flutter_reactive_ble: ^5.0.0       # BLE robusto
-geolocator: ^11.0.0                # GPS background
-supabase_flutter: ^2.0.0           # Sync
-flutter_foreground_task: ^6.0.0    # Android Foreground Service
-permission_handler: ^11.0.0        # Permisos
-latlong2: ^0.9.0                   # Distancia + bearing
-```
-
-### Permisos Android
-
-```xml
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-```
-
-### Dynamic Polling (crucial para batería)
-
-| Modo | Distancia | Intervalo |
-|---|---|---|
-| PRECISION | <500m o RADAR activo | **3s** |
-| NEAR | <10km | **60s** |
-| FAR | 10-50km | **3m** |
-| REMOTE | >50km | **5-10m** (jitter) |
-
-**Impacto**: 95-99% menos tráfico que polling estático 3s.
+### 🔑 Configuración del Entorno de Desarrollo (Flutter)
+Requisitos previos: tener instalado el SDK de Flutter y las herramientas de Android.
+1.  Navega al directorio `/app`.
+2.  Instala las dependencias declaradas en `pubspec.yaml`:
+    ```bash
+    flutter pub get
+    ```
+3.  Establece la IP de tu servidor Supabase (obtenida mediante Tailscale) en el archivo [app/lib/main.dart](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/app/lib/main.dart):
+    ```dart
+    const supabaseUrl = 'http://100.x.x.x:8000'; // IP de tu nodo Tailscale
+    const supabaseAnonKey = 'tu-clave-anonima-de-supabase';
+    ```
+4.  Compila y arranca en tu dispositivo Android conectado o emulador:
+    ```bash
+    flutter run
+    ```
 
 ---
 
-## 🔴 BACKEND SUPABASE (PRÓXIMO)
+## 🔧 3. Servidor de Base de Datos y Comunicación (`backend`)
 
-### Infraestructura
+El backend del proyecto utiliza una pila self-hosted de **Supabase** dentro de contenedores Docker en un PC que hace de servidor doméstico. La red privada virtual de **Tailscale** sirve de puente seguro entre los teléfonos de los usuarios y el servidor local sin necesidad de abrir puertos en el router (NAT/Firewall).
 
-```
-PC siempre encendido (tuyo)
-├── Docker Desktop
-│   └── Supabase self-hosted
-│       ├── PostgreSQL 15
-│       ├── PostgREST
-│       ├── Realtime (WebSockets)
-│       └── Auth
-└── Tailscale
-    └── Acceso móviles desde tailnet
-```
+### 🚀 Despliegue con Docker Compose
+1.  Instala Docker Desktop (Windows/Mac) o Docker Engine (Linux) y asegúrate de que el servicio está activo.
+2.  Navega a la carpeta `/backend` y levanta la pila:
+    ```bash
+    cd backend
+    docker-compose up -d
+    ```
+3.  Verifica el estado de los contenedores de Supabase (`PostgreSQL`, `PostgREST`, `Realtime`, `Studio`):
+    ```bash
+    docker-compose ps
+    ```
+4.  Una vez levantados, la base de datos PostgreSQL ejecutará automáticamente el script [init-db.sql](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/backend/init-db.sql), creando las tablas requeridas y las funciones de limpieza automáticas.
+5.  Puedes acceder a la interfaz de administración Supabase Studio abriendo en tu navegador local `http://localhost:3000`.
 
-### Docker Compose
+### 📊 Esquema de Datos de la Base de Datos
 
-```yaml
-version: '3.8'
-services:
-  postgres:
-    image: supabase/postgres:15
-    ...
-  realtime:
-    image: supabase/realtime:latest
-    ...
-  rest:
-    image: postgrest/postgrest:latest
-    ...
-```
-
-### Esquema de BD
-
-```sql
-CREATE TABLE locations (
-  user_id TEXT PRIMARY KEY,
-  latitude DOUBLE PRECISION,
-  longitude DOUBLE PRECISION,
-  accuracy FLOAT,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE haptic_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  from_user TEXT,
-  to_user TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  consumed BOOLEAN DEFAULT FALSE
-);
-
-CREATE TABLE watch_config (
-  user_id TEXT PRIMARY KEY,
-  clock_timeout_s INT DEFAULT 5,
-  brightness_percent INT DEFAULT 60,
-  color_hours_connected TEXT DEFAULT 'FFFFDCB4',
-  ...
-);
-```
-
-### Realtime Subscriptions
-
-```dart
-// App B escucha eventos hápticos
-supabase.from('haptic_events')
-  .stream(primaryKey: ['id'])
-  .eq('to_user', 'B')
-  .eq('consumed', false)
-  .listen((events) {
-    if (events.isNotEmpty) {
-      ble_service.sendHapticCommand();
-      supabase.from('haptic_events')
-        .update({'consumed': true})
-        .eq('id', events.first['id']);
+```mermaid
+erDiagram
+    locations {
+        string user_id PK "Identificador único de usuario (A o B)"
+        double latitude "Latitud GPS"
+        double longitude "Longitud GPS"
+        float accuracy "Precisión del fix en metros"
+        string polling_mode "Modo activo (Precision, Near, Far, Remote)"
+        timestamp updated_at "Última sincronización realizada"
     }
-  });
+    haptic_events {
+        uuid id PK "ID autogenerado"
+        string from_user "Origen del toque (A o B)"
+        string to_user "Destino (B o A)"
+        timestamp created_at "Marca de tiempo de envío"
+        boolean consumed "Indica si el receptor ya lo ha procesado"
+    }
+    watch_config {
+        string user_id PK "ID del usuario propietario"
+        int clock_timeout_s "Segundos que dura la hora encendida antes de dormir"
+        int brightness_percent "Brillo global de los LEDs (0-100)"
+        string color_hours_connected "Color de horas cuando está conectado (Hex ARGB)"
+        string color_minutes_connected "Color de minutos cuando está conectado"
+        string color_seconds_connected "Color de segundos cuando está conectado"
+        string color_hours_disc "Color de horas en desconexión"
+        string color_minutes_disc "Color de minutos en desconexión"
+        string color_seconds_disc "Color de segundos en desconexión"
+        int low_battery_threshold "Porcentaje para alerta de batería baja"
+        timestamp updated_at "Última actualización de la config"
+    }
 ```
 
 ---
 
-## 🔧 Configuración Inicial
+## 🛠️ 4. Diagnóstico y Corrección de Hardware
 
-### 1️⃣ Hardware (cuando llegue)
+### ⚙️ Modificación de la PCB para la Brújula (LIS3MDL)
+En la versión física actual de la PCB, se descubrió un problema de impedancia en las líneas de datos del bus I2C. Para corregirlo, es necesario desoldar dos resistencias en serie y puentearlas:
 
-```
-XIAO nRF52840 Sense
-├── D7  → SK6812 data (NeoPixel)
-├── D8  → TTP223 button
-├── D9  → Motor vibración (PWM)
-├── D10 → LED power MOSFET
-├── D4  → LIS3MDL SDA (I2C)
-└── D5  → LIS3MDL SCL (I2C)
-```
-
-### 2️⃣ Arduino IDE + Librerías
-
-```
-1. Tools → Board Manager → Seeed nRF52 Boards
-2. Instalar Adafruit_NeoPixel, Adafruit_LIS3MDL, etc.
-3. Tools → Board → Seeed XIAO nRF52840 Sense
-4. Cargar firmware
-```
-
-### 3️⃣ Flutter App
-
-```bash
-flutter create jessi_app
-cd jessi_app
-flutter pub add flutter_reactive_ble geolocator supabase_flutter ...
-```
-
-### 4️⃣ Supabase Docker
-
-```bash
-docker-compose up -d
-# Acceso: localhost:8000
-# Tailscale: 100.x.x.x:8000 desde móviles
-```
+1.  Identifica las resistencias de **4.7kΩ** de formato **0402** en serie sobre las pistas de datos del magnetómetro:
+    *   Resistencia en la línea **D4 (SDA)**.
+    *   Resistencia en la línea **D5 (SCL)**.
+2.  Desuelda con cuidado ambas resistencias usando soldador y pinzas.
+3.  Crea un **puente de soldadura (0Ω)** conectando de forma directa ambos extremos de cada pad con una gota de estaño.
+4.  Esto elimina la caída de voltaje en la línea y permite que las resistencias de elevación (*pull-ups*) internas del Seeed Studio manejen el bus de manera correcta.
+5.  Puedes correr el script de prueba ubicado en [diagnostico/compass_diagnostic/compass_diagnostic.ino](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/diagnostico/compass_diagnostic/compass_diagnostic.ino) para ver si la consola del monitor serie retorna:
+    `[COMPASS] ✓ LIS3MDL found on Wire (D4/D5) at 0x1E`
 
 ---
 
-## 📊 Tablas de Referencia
+## 📊 Tabla de Referencia de Comportamientos del Reloj
 
-### Estados y Gestos
+### Transiciones de Estados y Gestos del Botón (`TTP223`)
 
-| Estado | Tap | Doble tap | Press corto | Press largo |
-|---|---|---|---|---|
-| DEEP_SLEEP | WAKING_UP | — | — | — |
-| CLOCK_CONN | Reset timer | HAPTIC_TX | RADAR | DEEP_SLEEP |
-| CLOCK_DISC | Reset timer | (ignorado) | ERROR | DEEP_SLEEP |
-| RADAR | Reset timer | DISTANCE | CLOCK | DEEP_SLEEP |
-| DISTANCE | Reset timer | RADAR | CLOCK | DEEP_SLEEP |
-| HAPTIC_RX | Cancelar | — | — | — |
+| Estado Actual | Un Tap | Doble Tap | Presión Corta (1.5s) | Presión Larga (3s) |
+| :--- | :--- | :--- | :--- | :--- |
+| **`DEEP_SLEEP`** | Despierta ➔ `WAKING_UP` | — | — | — |
+| **`CLOCK_CONNECTED`** | Resetea temporizador | Envía toque (háptica TX) | Cambia a `RADAR_MODE` | Fuerza entrada a `DEEP_SLEEP` |
+| **`CLOCK_DISCONNECTED`** | Resetea temporizador | Ignorado (sin BLE) | Muestra error (LED rojo parpadeo) | Fuerza entrada a `DEEP_SLEEP` |
+| **`RADAR_MODE`** | Resetea temporizador | Cambia a `DISTANCE_MODE` | Regresa a modo Reloj | Fuerza entrada a `DEEP_SLEEP` |
+| **`DISTANCE_MODE`** | Resetea temporizador | Cambia a `RADAR_MODE` | Regresa a modo Reloj | Fuerza entrada a `DEEP_SLEEP` |
+| **`HAPTIC_RX`** | Cancela vibración | — | — | — |
+| **`CALIBRATION_MODE`** | Cancela calibración | — | — | — |
 
-### Colores (0xAARRGGBB)
+### Patrones de Vibración Háptica
 
-**CLOCK_CONNECTED (blancos):**
-- Horas: 0xFFFFDCB4 (cálido)
-- Minutos: 0xFFFFF5F0 (neutro)
-- Segundos: 0xFFC8DCFF (frío)
-
-**CLOCK_DISCONNECTED (azules):**
-- Horas: 0xFF001478 (oscuro)
-- Minutos: 0xFF003CC8 (medio)
-- Segundos: 0xFF2864FF (brillante)
-
-**DISTANCE_MODE:**
-- <15km: 0xFF0080FF (azul)
-- 15-50km: 0xFF00CC44 (verde)
-- 50-150km: 0xFFFFCC00 (amarillo)
-- 150-350km: 0xFFFF6600 (naranja)
-- >350km: 0xFFFF0000 (rojo)
-
-### Patrones Háptica (ms)
-
-**RX** (recibir toque):
-```
-200ms ON → 100ms OFF → 200ms ON → 100ms OFF → 400ms ON
-```
-
-**TX** (enviar toque):
-```
-100ms ON → 100ms OFF → 100ms ON (flash confirmación)
-```
-
-**Batería**:
-```
-100ms ON (cada 30 segundos)
-```
+*   **Toque Háptico Recibido (RX):**
+    ```text
+    [Vibrar 200ms] ➔ (Pausa 100ms) ➔ [Vibrar 200ms] ➔ (Pausa 100ms) ➔ [Vibrar 400ms]
+    ```
+*   **Confirmación de Envío (TX):** El motor no vibra para ahorrar batería. El anillo LED emite dos destellos rápidos de color blanco puro (`100ms ON` / `100ms OFF`).
+*   **Batería Crítica (< 15%):** Emite un pulso vibratorio muy corto y suave de `100ms` cada 30 segundos junto con un parpadeo lento en rojo sobre el LED 12.
+*   **Calibración completada / OTA con éxito:** Una única vibración larga y firme de `500ms`.
 
 ---
 
-## 🎯 Fases de Desarrollo
+## 🚀 Guía Rápida de Puesta en Marcha
 
-### Fase 1: Firmware ✅ COMPLETADO
-- ✅ Máquina de estados
-- ✅ Periféricos (GPIO, I2C, ADC, BLE)
-- ✅ Power management
-- ✅ Compilable sin hardware
+Para iniciar el entorno completo de forma rápida, sigue estos pasos estructurados:
 
-### Fase 2: App Flutter ⏳ PRÓXIMO
-- [ ] BLE GATT client
-- [ ] GPS background
-- [ ] Foreground Service (Android)
-- [ ] Dynamic polling
-- [ ] Previsualización del reloj
+```mermaid
+flowchart TD
+    A[1. Levantar Servidor Supabase en Docker] --> B[2. Activar Tailscale en Servidor y Móviles]
+    B --> C[3. Configurar IP en Flutter App y Compilar APK]
+    C --> D[4. Soldar puentes I2C en la PCB]
+    D --> E[5. Cargar Firmware v1.2 en Seeed Studio XIAO]
+    E --> F[6. Iniciar App, Emparejar por BLE y Calibrar IMU]
+```
 
-### Fase 3: Backend 🔴 FUTURO
-- [ ] Docker Supabase
-- [ ] Tablas PostgreSQL
-- [ ] Realtime subscriptions
-- [ ] Tailscale + auth
-
-### Fase 4: Testing 🔴 FUTURO
-- [ ] Test con hardware real
-- [ ] OTA updates
-- [ ] Calibración brújula
-- [ ] Optimización batería
-
----
-
-## 💡 Tips Importantes
-
-1. **Power-down IMU/PDM es CRÍTICO**: Sin esto, deep sleep consume 1-3mA en lugar de <10µA.
-   - Código en `nexus_halo/power.cpp` → `powerDownInternalSensors()`
-   - Se ejecuta en `setup()` ANTES de inicializar otros periféricos
-
-2. **I2C Custom**: LIS3MDL en D4/D5 requiere `Wire.setPins(D4, D5)` antes de `Wire.begin()`
-
-3. **Máquina de estados**: Use `transitionTo()` para cambios. Los timers se resetean automáticamente según el estado.
-
-4. **BLE Callbacks**: Las características se actualizan cuando el móvil escribe. Usa `callback_*` functions para reaccionar.
-
-5. **Dynamic Polling**: Reduce GPS updates de 28.800/día (3s) a 144-288/día (>50km) → 99% menos tráfico.
-
----
-
-## 📞 Soporte
-
-- **Firmware**: Arduino IDE + Serial Monitor (115200 baud)
-- **App**: Android Studio + Android emulator
-- **Backend**: Docker logs (`docker logs supabase_postgres_1`)
-- **Docs**: `Docs/description.md` (especificación completa v1.1)
-
----
-
-## 📝 Licencia
-
-MIT License — Libre para uso educativo y personal.
-
----
-
-**Proyecto Jessi v1.1** | Seeed XIAO nRF52840 Sense | Flutter Android | Supabase
+1.  **Base de datos:** Ejecuta `docker-compose up -d` en `/backend`.
+2.  **VPN Tailscale:** Asegúrate de que el servidor y los teléfonos están en la misma red Tailscale y conéctalos.
+3.  **Aplicación:** Configura la IP del servidor en el código de Flutter y corre `flutter run` en el móvil Android de destino. Instala la APK.
+4.  **Hardware:** Modifica los pads I2C en tu placa de circuito impreso para asegurar comunicación con la brújula LIS3MDL.
+5.  **Firmware:** Sube el código del firmware [nexus_halo.ino](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/nexus_halo/nexus_halo.ino) al Seeed Studio XIAO.
+6.  **Calibración final:** Abre la app en tu teléfono Android, empareja tu reloj usando la pantalla de pairing, entra en calibración en la sección de ajustes, y realiza los 5 gestos para que el reloj empiece a reaccionar a tus movimientos de muñeca de forma perfecta.
