@@ -77,6 +77,7 @@ volatile bool motion_detected_flag = false;
 volatile bool config_update_pending = false;
 uint32_t last_config_change_ms = 0;
 bool config_save_pending = false;
+bool haptic_rx_pending = false;
 
 // ── Time sync (Unix timestamp received from app via BLE) ────────────────────
 bool time_synced = false;    // True after first sync from app
@@ -589,11 +590,17 @@ void handleStateWakingUp() {
     lsm6ds3.begin();
   }
 
-  // Check BLE connection and transition accordingly
-  if (ble_handler.isConnected()) {
-    state_machine.transitionTo(STATE_CLOCK_CONNECTED);
+  // If a haptic event woke the watch or arrived while sleeping, process it first
+  if (haptic_rx_pending) {
+    haptic_rx_pending = false; // Reset flag
+    state_machine.transitionTo(STATE_HAPTIC_RX);
   } else {
-    state_machine.transitionTo(STATE_CLOCK_DISCONNECTED);
+    // Check BLE connection and transition accordingly
+    if (ble_handler.isConnected()) {
+      state_machine.transitionTo(STATE_CLOCK_CONNECTED);
+    } else {
+      state_machine.transitionTo(STATE_CLOCK_DISCONNECTED);
+    }
   }
 }
 
@@ -981,9 +988,14 @@ void handleStateOTAMode() {
 
 void onBLEHapticRX() {
   // Mobile sent a haptic command
-  if (state_machine.getCurrentState() != STATE_OTA_MODE &&
-      state_machine.getCurrentState() != STATE_DEEP_SLEEP) {
-    state_machine.transitionTo(STATE_HAPTIC_RX);
+  if (state_machine.getCurrentState() != STATE_OTA_MODE) {
+    if (state_machine.getCurrentState() == STATE_DEEP_SLEEP) {
+      // Waking up from sleep to play haptic
+      haptic_rx_pending = true;
+      state_machine.transitionTo(STATE_WAKING_UP);
+    } else {
+      state_machine.transitionTo(STATE_HAPTIC_RX);
+    }
   }
 }
 
