@@ -275,7 +275,7 @@ RTClib o RTC nRF52840 interno        → Reloj de tiempo real
 
 ```
 /firmware
-├── couples_watch.ino          → Setup, loop, máquina de estados principal
+├── nexus_halo.ino          → Setup, loop, máquina de estados principal
 ├── ble_handler.h/.cpp         → Gestión BLE, servicios, características, OTA
 ├── led_controller.h/.cpp      → Control SK6812, animaciones, estados LED
 ├── compass.h/.cpp             → LIS3MDL I2C custom, calibración, heading
@@ -498,7 +498,7 @@ dependencies:
 
 **Funcionamiento del Foreground Service:**
 - Al arrancar la app, se inicia un `ForegroundTask` de tipo `location` y `connectedDevice`
-- Muestra una notificación persistente **silenciosa** (sin sonido, sin vibración, sin heads-up) con el texto "Couples Watch activo" y un icono minimalista
+- Muestra una notificación persistente **silenciosa** (sin sonido, sin vibración, sin heads-up) con el texto "NEXUS HALO activo" y un icono minimalista
 - El Foreground Service garantiza que Android no destruya el proceso en Doze Mode, incluso con la pantalla apagada durante horas
 - Dentro del servicio corren: el loop de GPS, el cliente BLE, y el cliente Supabase Realtime
 

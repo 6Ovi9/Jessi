@@ -5,11 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
 import '../models/config_model.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-/// Servicio BLE para comunicación con el reloj Couples Watch.
+/// Servicio BLE para comunicación con el reloj Nexus Halo.
 ///
 /// Gestiona:
-/// - Escaneo y descubrimiento del dispositivo "Jessi Watch"
+/// - Escaneo y descubrimiento del dispositivo "Nexus Halo"
 /// - Conexión/reconexión automática
 /// - Escritura de bearing y distance (app → reloj)
 /// - Lectura de haptic_tx, battery, radar_active (reloj → app)
@@ -24,37 +25,41 @@ class BleService extends ChangeNotifier {
   // Los 16-bit se expanden a: 0000XXXX-0000-1000-8000-00805f9b34fb
 
   static final Uuid _serviceUuid =
-      Uuid.parse('0000180a-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c180a-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _bearingCharUuid =
-      Uuid.parse('00002a58-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c2a58-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _distanceCharUuid =
-      Uuid.parse('00002a59-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c2a59-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _hapticTxCharUuid =
-      Uuid.parse('00002a5a-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c2a5a-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _hapticRxCharUuid =
-      Uuid.parse('00002a5b-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c2a5b-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _batteryCharUuid =
-      Uuid.parse('00002a19-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c2a19-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _calibCmdCharUuid =
-      Uuid.parse('00002a5c-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c2a5c-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _calibStatusCharUuid =
-      Uuid.parse('00002a5d-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c2a5d-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _calibThresholdCharUuid =
-      Uuid.parse('00002a5e-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c2a5e-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _configCharUuid =
-      Uuid.parse('00002a60-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c2a60-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _otaCharUuid =
-      Uuid.parse('00002a61-0000-1000-8000-00805f9b34fb');
+      Uuid.parse('4a5c2a61-5f2d-4e1b-822c-4a2d87b4c85b');
+
+  /// UUID para sincronización de hora (escribe Unix timestamp uint32 LE)
+  static final Uuid _timeSyncCharUuid =
+      Uuid.parse('4a5c2a2b-5f2d-4e1b-822c-4a2d87b4c85b');
 
   // ── Estado ──────────────────────────────────────────────────────────────
 
@@ -89,6 +94,10 @@ class BleService extends ChangeNotifier {
   StreamSubscription<List<int>>? _hapticTxSubscription;
   StreamSubscription<List<int>>? _batterySubscription;
   StreamSubscription<List<int>>? _calibStatusSubscription;
+  StreamSubscription<List<int>>? _calibThresholdSubscription;
+
+  int? _calibThreshold;
+  int? get calibThreshold => _calibThreshold;
 
   // ── Callbacks externos ─────────────────────────────────────────────────
 
@@ -136,9 +145,21 @@ class BleService extends ChangeNotifier {
 
   /// Iniciar escaneo BLE.
   /// Filtra por dispositivos que anuncian nuestro servicio UUID
-  /// o que tienen el nombre "Jessi Watch".
-  void startScan() {
+  /// o que tienen el nombre "Nexus Halo" o similar.
+  Future<void> startScan() async {
     if (_isScanning) return;
+
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.locationWhenInUse,
+    ].request();
+
+    if (statuses[Permission.bluetoothScan] != PermissionStatus.granted ||
+        statuses[Permission.locationWhenInUse] != PermissionStatus.granted) {
+      print('[BLE] Permissions denied');
+      return;
+    }
 
     _discoveredDevices.clear();
     _isScanning = true;
@@ -152,7 +173,9 @@ class BleService extends ChangeNotifier {
     ).listen(
       (device) {
         // Filtrar por nombre o servicio
-        final isOurDevice = device.name.contains('Jessi') ||
+        final isOurDevice = device.name.contains('Nexus') ||
+            device.name.contains('Halo') ||
+            device.name.contains('Jessi') ||
             device.name.contains('Couples') ||
             device.serviceUuids.contains(_serviceUuid);
 
@@ -255,8 +278,10 @@ class BleService extends ChangeNotifier {
     _hapticTxSubscription?.cancel();
     _batterySubscription?.cancel();
     _calibStatusSubscription?.cancel();
+    _calibThresholdSubscription?.cancel();
     _connectionState = BleConnectionState.disconnected;
     _connectedDeviceId = null;
+
     notifyListeners();
     print('[BLE] Disconnected');
   }
@@ -268,6 +293,14 @@ class BleService extends ChangeNotifier {
     // Suscribirse a notificaciones del reloj
     _subscribeToHapticTx(deviceId);
     _subscribeToBattery(deviceId);
+    _subscribeToCalibStatus(deviceId);
+    _subscribeToCalibThreshold(deviceId);
+
+    // Sincronizar la hora real al reloj (pequeño delay para que el stack BLE
+    // termine de inicializar las características antes del primer write)
+    Future.delayed(const Duration(milliseconds: 500), () {
+      syncTime();
+    });
   }
 
   /// Llamado al perder la conexión
@@ -275,8 +308,10 @@ class BleService extends ChangeNotifier {
     _hapticTxSubscription?.cancel();
     _batterySubscription?.cancel();
     _calibStatusSubscription?.cancel();
+    _calibThresholdSubscription?.cancel();
     _radarModeActive = false;
     _batteryPercent = -1;
+    _calibThreshold = null;
     print('[BLE] Disconnected, subscriptions cancelled');
   }
 
@@ -290,7 +325,8 @@ class BleService extends ChangeNotifier {
       deviceId: deviceId,
     );
 
-    _hapticTxSubscription = _ble.subscribeToCharacteristic(characteristic).listen(
+    _hapticTxSubscription =
+        _ble.subscribeToCharacteristic(characteristic).listen(
       (data) {
         if (data.isNotEmpty && data[0] == 0x01) {
           print('[BLE] Haptic TX received! User tapped the watch.');
@@ -311,7 +347,8 @@ class BleService extends ChangeNotifier {
       deviceId: deviceId,
     );
 
-    _batterySubscription = _ble.subscribeToCharacteristic(characteristic).listen(
+    _batterySubscription =
+        _ble.subscribeToCharacteristic(characteristic).listen(
       (data) {
         if (data.isNotEmpty) {
           _batteryPercent = data[0];
@@ -327,6 +364,44 @@ class BleService extends ChangeNotifier {
   }
 
   // ── Escritura al reloj ─────────────────────────────────────────────────
+
+  /// Sincronizar la hora real del reloj.
+  ///
+  /// Envía el Unix timestamp actual (segundos desde epoch 1970-01-01 UTC)
+  /// como uint32 little-endian. El reloj lo usa para mostrar la hora real
+  /// en lugar del tiempo de uptime desde el arranque.
+  /// Se llama automáticamente al conectar y puede llamarse manualmente.
+  Future<void> syncTime() async {
+    if (_connectionState != BleConnectionState.connected ||
+        _connectedDeviceId == null) {
+      return;
+    }
+
+    final characteristic = QualifiedCharacteristic(
+      serviceId: _serviceUuid,
+      characteristicId: _timeSyncCharUuid,
+      deviceId: _connectedDeviceId!,
+    );
+
+    // Tiempo local ajustado a segundos para el reloj
+    final now = DateTime.now();
+    final int nowEpoch =
+        (now.millisecondsSinceEpoch ~/ 1000) + now.timeZoneOffset.inSeconds;
+
+    final bytes = ByteData(4);
+    bytes.setUint32(0, nowEpoch, Endian.little);
+
+    try {
+      await _ble.writeCharacteristicWithResponse(
+        characteristic,
+        value: bytes.buffer.asUint8List(),
+      );
+      print('[BLE] Time synced: $nowEpoch '
+          '(${DateTime.fromMillisecondsSinceEpoch(nowEpoch * 1000).toIso8601String()})');
+    } catch (e) {
+      print('[BLE] Time sync failed: $e');
+    }
+  }
 
   /// Enviar bearing al reloj (BEARING_CHAR, float 4 bytes).
   ///
@@ -482,9 +557,6 @@ class BleService extends ChangeNotifier {
       value: [0x01], // START
     );
 
-    // Suscribirse al progreso de calibración
-    _subscribeToCalibStatus(_connectedDeviceId!);
-
     print('[BLE] Calibration START sent');
   }
 
@@ -533,13 +605,15 @@ class BleService extends ChangeNotifier {
 
   /// Suscribirse al progreso de calibración
   void _subscribeToCalibStatus(String deviceId) {
+    _calibStatusSubscription?.cancel();
     final characteristic = QualifiedCharacteristic(
       serviceId: _serviceUuid,
       characteristicId: _calibStatusCharUuid,
       deviceId: deviceId,
     );
 
-    _calibStatusSubscription = _ble.subscribeToCharacteristic(characteristic).listen(
+    _calibStatusSubscription =
+        _ble.subscribeToCharacteristic(characteristic).listen(
       (data) {
         if (data.isNotEmpty) {
           final progress = data[0]; // 0-255
@@ -549,6 +623,30 @@ class BleService extends ChangeNotifier {
       },
       onError: (error) {
         print('[BLE] Calibration status error: $error');
+      },
+    );
+  }
+
+  /// Suscribirse al umbral de calibración calculado por el reloj
+  void _subscribeToCalibThreshold(String deviceId) {
+    _calibThresholdSubscription?.cancel();
+    final characteristic = QualifiedCharacteristic(
+      serviceId: _serviceUuid,
+      characteristicId: _calibThresholdCharUuid,
+      deviceId: deviceId,
+    );
+
+    _calibThresholdSubscription =
+        _ble.subscribeToCharacteristic(characteristic).listen(
+      (data) {
+        if (data.isNotEmpty) {
+          _calibThreshold = data[0];
+          print('[BLE] Calibration threshold received: $_calibThreshold');
+          notifyListeners();
+        }
+      },
+      onError: (error) {
+        print('[BLE] Calibration threshold error: $error');
       },
     );
   }

@@ -1,4 +1,4 @@
-# Couples Watch Firmware v1.2
+# Nexus Halo Firmware v1.2
 
 **Firmware para Seeed Studio XIAO nRF52840 Sense**
 
@@ -12,7 +12,7 @@ Smartwatch parejas con anillo LED de 12 posiciones, brújula, detección de gest
 
 ```
 firmware/
-├── couples_watch.ino              # Main firmware (Arduino sketch) — v1.2
+├── nexus_halo.ino              # Main firmware (Arduino sketch) — v1.2
 ├── config.h                       # Global configuration & constants — v1.2
 ├── state_machine.h/.cpp           # Máquina de estados (11 estados) — v1.2
 ├── gesture.h/.cpp                 # Detección de gestos (TTP223)
@@ -94,7 +94,7 @@ Tools → Port → COM[X] (Seeed XIAO nRF52840 Sense)
 
 ### Opción 1: Arduino IDE
 
-1. **Abre** `couples_watch.ino` en Arduino IDE
+1. **Abre** `nexus_halo.ino` en Arduino IDE
 2. **Verifica** (✓): `Sketch → Verify` — debe pasar sin errores
 3. **Sube** (→): `Sketch → Upload`
 4. **Monitor**: `Tools → Serial Monitor` (115200 baud) para ver debug
@@ -103,10 +103,10 @@ Tools → Port → COM[X] (Seeed XIAO nRF52840 Sense)
 
 ```bash
 # Compilar
-arduino-cli compile --fqbn Seeeduino:nrf52:Seeeduino_nRF52840_Sense couples_watch.ino
+arduino-cli compile --fqbn Seeeduino:nrf52:Seeeduino_nRF52840_Sense nexus_halo.ino
 
 # Cargar
-arduino-cli upload --fqbn Seeeduino:nrf52:Seeeduino_nRF52840_Sense --port COM[X] couples_watch.ino
+arduino-cli upload --fqbn Seeeduino:nrf52:Seeeduino_nRF52840_Sense --port COM[X] nexus_halo.ino
 ```
 
 ---
@@ -227,7 +227,7 @@ Tools → Upload Method → nRF52840 DK
 
 ### Opción 1: Arduino IDE
 
-1. **Abre** `couples_watch.ino` en Arduino IDE
+1. **Abre** `nexus_halo.ino` en Arduino IDE
 2. **Verifica** (✓): `Sketch → Verify` — debe pasar sin errores/warnings
 3. **Sube** (→): `Sketch → Upload`
 4. **Monitor**: `Tools → Serial Monitor` (115200 baud) para ver debug
@@ -238,10 +238,10 @@ Tools → Upload Method → nRF52840 DK
 
 ```bash
 # Compilar
-arduino-cli compile --fqbn Seeeduino:nrf52:Seeeduino_nRF52840_Sense couples_watch.ino
+arduino-cli compile --fqbn Seeeduino:nrf52:Seeeduino_nRF52840_Sense nexus_halo.ino
 
 # Cargar
-arduino-cli upload --fqbn Seeeduino:nrf52:Seeeduino_nRF52840_Sense --port COM[X] couples_watch.ino
+arduino-cli upload --fqbn Seeeduino:nrf52:Seeeduino_nRF52840_Sense --port COM[X] nexus_halo.ino
 ```
 
 ### Opción 3: Validación Pre-Compilación
@@ -256,7 +256,7 @@ Lee `COMPILATION_VALIDATION.md` para una checklist de 11 ítems antes de compila
 2. **Abre Serial Monitor** (115200 baud)
 3. **Observa los logs**:
    ```
-   [SETUP] Couples Watch Firmware v1.2
+   [SETUP] Nexus Halo Firmware v1.2
    [SETUP] Initializing...
    [SETUP] Initializing EEPROM...
    [SETUP] Powering down internal sensors...
@@ -293,7 +293,7 @@ Aunque no tengas el hardware aún, puedes compilar y verificar sin errores:
 
 ```bash
 # Solo compilación (sin upload)
-arduino-cli compile --fqbn Seeeduino:nrf52:Seeeduino_nRF52840_Sense couples_watch.ino
+arduino-cli compile --fqbn Seeeduino:nrf52:Seeeduino_nRF52840_Sense nexus_halo.ino
 ```
 
 Esto valida:
@@ -403,4 +403,4 @@ MIT License — Libre para uso educativo y personal.
 
 ## 👨‍💻 Autor
 
-Jessi Project v1.1 — Seeed XIAO nRF52840 Sense
+Nexus Halo v1.2 — Seeed XIAO nRF52840 Sense

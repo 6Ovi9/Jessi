@@ -180,6 +180,9 @@ CREATE TABLE IF NOT EXISTS watch_config (
   -- IMU wake-on-motion threshold
   wake_threshold            INT DEFAULT 2,      -- 0x00-0xFF (default 0x02 = ~312mg)
 
+  -- Gyroscope wrist-flick threshold (dps)
+  gyro_threshold            INT DEFAULT 260,
+
   -- Metadata
   updated_at                TIMESTAMPTZ DEFAULT NOW()
 );
@@ -252,9 +255,24 @@ BEGIN
 END
 $$;
 
--- Añadir tablas a la publicación de Realtime
-ALTER PUBLICATION supabase_realtime ADD TABLE locations;
-ALTER PUBLICATION supabase_realtime ADD TABLE haptic_events;
+-- Añadir tablas a la publicación de Realtime de forma idempotente
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'locations'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE locations;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'haptic_events'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE haptic_events;
+  END IF;
+END
+$$;
 -- watch_config no necesita Realtime (se sincroniza por BLE, no por WebSocket)
 
 -- ────────────────────────────────────────────────────────────────────────────

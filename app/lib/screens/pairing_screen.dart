@@ -8,7 +8,7 @@ import '../services/ble_service.dart';
 ///
 /// Permite:
 /// - Escanear dispositivos BLE cercanos
-/// - Seleccionar y conectar al reloj "Jessi Watch"
+/// - Seleccionar y conectar al reloj "Nexus Halo"
 /// - Ver el estado de la conexión
 /// - Desconectar
 class PairingScreen extends StatefulWidget {
@@ -280,7 +280,9 @@ class _PairingScreenState extends State<PairingScreen>
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final device = bleService.discoveredDevices[index];
-        final isJessi = device.name.contains('Jessi') ||
+        final isOurDevice = device.name.contains('Nexus') ||
+            device.name.contains('Halo') ||
+            device.name.contains('Jessi') ||
             device.name.contains('Couples');
 
         return GestureDetector(
@@ -296,7 +298,7 @@ class _PairingScreenState extends State<PairingScreen>
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              gradient: isJessi
+              gradient: isOurDevice
                   ? LinearGradient(
                       colors: [
                         const Color(0xFF4488FF).withValues(alpha: 0.12),
@@ -304,10 +306,10 @@ class _PairingScreenState extends State<PairingScreen>
                       ],
                     )
                   : null,
-              color: isJessi ? null : Colors.white.withValues(alpha: 0.04),
+              color: isOurDevice ? null : Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: isJessi
+                color: isOurDevice
                     ? const Color(0xFF4488FF).withValues(alpha: 0.2)
                     : Colors.white.withValues(alpha: 0.04),
               ),
@@ -320,13 +322,13 @@ class _PairingScreenState extends State<PairingScreen>
                   height: 44,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isJessi
+                    color: isOurDevice
                         ? const Color(0xFF4488FF).withValues(alpha: 0.15)
                         : Colors.white.withValues(alpha: 0.06),
                   ),
                   child: Icon(
-                    isJessi ? Icons.watch_rounded : Icons.bluetooth_rounded,
-                    color: isJessi
+                    isOurDevice ? Icons.watch_rounded : Icons.bluetooth_rounded,
+                    color: isOurDevice
                         ? const Color(0xFF4488FF)
                         : Colors.white.withValues(alpha: 0.4),
                     size: 22,
@@ -344,7 +346,7 @@ class _PairingScreenState extends State<PairingScreen>
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color: isJessi
+                          color: isOurDevice
                               ? Colors.white
                               : Colors.white.withValues(alpha: 0.6),
                         ),

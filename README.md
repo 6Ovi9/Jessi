@@ -1,4 +1,4 @@
-# 🎯 COUPLES WATCH — Proyecto Completo
+# 🎯 NEXUS HALO — Proyecto Completo
 
 **Reloj inteligente parejas** con anillo LED de 12 posiciones, brújula magnética, vibración háptica y GPS en tiempo real.
 
@@ -11,8 +11,8 @@ Jessi/
 ├── Docs/
 │   └── description.md              ← Especificación completa (v1.1)
 │
-├── firmware/                        ← 🟢 IMPLEMENTADO 100%
-│   ├── couples_watch.ino           ← Main sketch (500+ líneas)
+├── nexus_halo/                        ← 🟢 IMPLEMENTADO 100%
+│   ├── nexus_halo.ino           ← Main sketch (500+ líneas)
 │   ├── config.h                    ← Constantes globales
 │   ├── state_machine.h/.cpp        ← FSM (11 estados)
 │   ├── gesture.h/.cpp              ← Detección gestos TTP223
@@ -100,7 +100,7 @@ Jessi/
 
 ```bash
 # Arduino IDE
-1. File → Open → couples_watch.ino
+1. File → Open → nexus_halo.ino
 2. Tools → Board → Seeed XIAO nRF52840 Sense
 3. Sketch → Verify (compile)
 4. Sketch → Upload
@@ -379,7 +379,7 @@ docker-compose up -d
 ## 💡 Tips Importantes
 
 1. **Power-down IMU/PDM es CRÍTICO**: Sin esto, deep sleep consume 1-3mA en lugar de <10µA.
-   - Código en `firmware/power.cpp` → `powerDownInternalSensors()`
+   - Código en `nexus_halo/power.cpp` → `powerDownInternalSensors()`
    - Se ejecuta en `setup()` ANTES de inicializar otros periféricos
 
 2. **I2C Custom**: LIS3MDL en D4/D5 requiere `Wire.setPins(D4, D5)` antes de `Wire.begin()`

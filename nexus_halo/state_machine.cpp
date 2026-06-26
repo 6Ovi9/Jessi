@@ -6,7 +6,7 @@ StateMachine::StateMachine()
     target_state(STATE_DEEP_SLEEP),
     state_changed(false),
     state_entered_ms(0),
-    timer_expire_ms(0),
+    timer_start_ms(0),
     timer_duration_ms(0),
     timer_active(false),
     low_battery_active(false),
@@ -26,8 +26,8 @@ void StateMachine::begin() {
 void StateMachine::update(uint32_t now_ms) {
   state_changed = false;
   
-  // Check timer expiration
-  if (timer_active && (now_ms >= timer_expire_ms)) {
+  // Check timer expiration (overflow-safe)
+  if (timer_active && (now_ms - timer_start_ms >= timer_duration_ms)) {
     timer_active = false;
     // Transition back based on current state logic
     switch (current_state) {
@@ -42,8 +42,11 @@ void StateMachine::update(uint32_t now_ms) {
       case STATE_HAPTIC_RX:
         transitionTo(previous_state);
         break;
-      case STATE_ERROR_NO_GPS:
+      case STATE_HAPTIC_TX:
         transitionTo(STATE_CLOCK_CONNECTED);
+        break;
+      case STATE_ERROR_NO_GPS:
+        transitionTo(previous_state);
         break;
       case STATE_WAKING_UP:
         // WAKING_UP should be handled by gesture/BLE callback, not timeout
@@ -89,20 +92,21 @@ void StateMachine::transitionToWithTimeout(State new_state, uint32_t timeout_ms)
 void StateMachine::resetTimer(uint32_t timeout_ms) {
   uint32_t now_ms = millis();
   timer_duration_ms = timeout_ms;
-  timer_expire_ms = now_ms + timeout_ms;
+  timer_start_ms = now_ms;
   timer_active = true;
 }
 
 bool StateMachine::isTimerExpired() const {
   if (!timer_active) return false;
-  return millis() >= timer_expire_ms;
+  return millis() - timer_start_ms >= timer_duration_ms;
 }
 
 uint32_t StateMachine::getTimerRemaining() const {
   if (!timer_active) return 0;
   uint32_t now_ms = millis();
-  if (now_ms >= timer_expire_ms) return 0;
-  return timer_expire_ms - now_ms;
+  uint32_t elapsed = now_ms - timer_start_ms;
+  if (elapsed >= timer_duration_ms) return 0;
+  return timer_duration_ms - elapsed;
 }
 
 void StateMachine::_enterState(State new_state) {
@@ -135,6 +139,8 @@ uint32_t StateMachine::_getDefaultTimeout(State state) const {
     case STATE_WAKING_UP:
       return TIMER_WAKING_UP_MS;
     case STATE_HAPTIC_RX:
+      return TIMER_HAPTIC_RX_TIMEOUT_MS;
+    case STATE_HAPTIC_TX:
       return TIMER_HAPTIC_RX_TIMEOUT_MS;
     default:
       return 0;  // No default timeout

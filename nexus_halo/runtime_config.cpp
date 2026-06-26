@@ -1,6 +1,8 @@
 #include "runtime_config.h"
 #include <cstring>
 
+using namespace Adafruit_LittleFS_Namespace;
+
 RuntimeConfigManager::RuntimeConfigManager()
   : initialized(false)
 {
@@ -12,8 +14,20 @@ void RuntimeConfigManager::begin() {
   
   if (!loadFromFlash()) {
     resetDefaults();
-    // Serial.println("[CONFIG] No saved config, using defaults");
+    Serial.println("[CONFIG] No saved config found, using DEFAULTS:");
+  } else {
+    Serial.println("[CONFIG] Loaded saved config from flash:");
   }
+  
+  Serial.print("  - colorHoursConnected: 0x"); Serial.println(config.colorHoursConnected, HEX);
+  Serial.print("  - colorMinutesConnected: 0x"); Serial.println(config.colorMinutesConnected, HEX);
+  Serial.print("  - colorSecondsConnected: 0x"); Serial.println(config.colorSecondsConnected, HEX);
+  Serial.print("  - colorHoursDisc: 0x"); Serial.println(config.colorHoursDisc, HEX);
+  Serial.print("  - colorMinutesDisc: 0x"); Serial.println(config.colorMinutesDisc, HEX);
+  Serial.print("  - colorSecondsDisc: 0x"); Serial.println(config.colorSecondsDisc, HEX);
+  Serial.print("  - brightnessPercent: "); Serial.print(config.brightnessPercent); Serial.println("%");
+  Serial.print("  - logarithmicBrightness: "); Serial.println(config.logarithmicBrightness);
+  Serial.print("  - wakeThreshold: "); Serial.println(config.wakeThreshold);
   
   initialized = true;
 }
@@ -32,6 +46,7 @@ void RuntimeConfigManager::resetDefaults() {
   config.lowBatteryThreshold   = LOW_BATTERY_THRESHOLD_PERCENT;
   config.hapticPatternIndex    = 0;
   config.wakeThreshold         = IMU_WAKE_UP_THS_DEFAULT;
+  config.gyroThreshold         = GESTURE_GYRO_THS_DEFAULT;
 }
 
 // ============================================================================
@@ -70,6 +85,9 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
   config.brightnessPercent = _findJsonInt(json, "br", config.brightnessPercent);
   config.lowBatteryThreshold = _findJsonInt(json, "lb", config.lowBatteryThreshold);
   config.wakeThreshold     = _findJsonInt(json, "wt", config.wakeThreshold);
+  config.gyroThreshold     = _findJsonInt(json, "gt", config.gyroThreshold);
+  config.hapticPatternIndex = _findJsonInt(json, "hp", config.hapticPatternIndex);
+
   
   // Parse boolean (sent as 0/1)
   int lg = _findJsonInt(json, "lg", -1);
@@ -77,10 +95,7 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
     config.logarithmicBrightness = (lg != 0);
   }
   
-  // Save to flash
-  saveToFlash();
-  
-  // Serial.println("[CONFIG] Updated from BLE JSON and saved");
+  // Serial.println("[CONFIG] Updated from BLE JSON");
   return true;
 }
 
@@ -116,7 +131,7 @@ bool RuntimeConfigManager::saveToFlash() {
     return false;
   }
   
-  file.write(&data, sizeof(data));
+  file.write((const uint8_t*)&data, sizeof(data));
   file.close();
   return true;
 }

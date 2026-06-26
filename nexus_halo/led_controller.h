@@ -29,6 +29,9 @@ public:
   void clear();
   void show();
   
+  // Set BLE status to safely enable/disable SoftDevice critical sections
+  void setBLEActive(bool active) { ble_active = active; }
+  
   // Set individual LED color (ARGB8888)
   void setLED(uint8_t index, uint32_t color);
   void setLEDBrightness(uint8_t index, uint32_t color, uint8_t brightness);
@@ -77,6 +80,7 @@ public:
 private:
   Adafruit_NeoPixel pixels;
   bool power_on;
+  bool ble_active;
   
   // Clock state
   uint8_t current_hour;

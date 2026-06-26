@@ -164,7 +164,10 @@ class LocationService extends ChangeNotifier {
       );
 
       _distanceKm = BearingCalculator.calculateDistanceKm(myPos, partnerLocation);
-      _bearingDeg = BearingCalculator.calculateBearing(myPos, partnerLocation);
+      // Solo recalcular el rumbo si la distancia es mayor o igual a 15 metros (0.015 km) para evitar oscilaciones erráticas
+      if (_distanceKm >= 0.015) {
+        _bearingDeg = BearingCalculator.calculateBearing(myPos, partnerLocation);
+      }
 
       // Recalcular modo de polling
       final newMode = BearingCalculator.getPollingMode(_distanceKm, _radarModeActive);
@@ -260,7 +263,10 @@ class LocationService extends ChangeNotifier {
       if (_partnerLocation != null) {
         final myPos = LatLng(position.latitude, position.longitude);
         _distanceKm = BearingCalculator.calculateDistanceKm(myPos, _partnerLocation!);
-        _bearingDeg = BearingCalculator.calculateBearing(myPos, _partnerLocation!);
+        // Solo recalcular el rumbo si la distancia es mayor o igual a 15 metros (0.015 km) para evitar oscilaciones erráticas
+        if (_distanceKm >= 0.015) {
+          _bearingDeg = BearingCalculator.calculateBearing(myPos, _partnerLocation!);
+        }
 
         // Notificar con datos calculados
         onLocationUpdate?.call(

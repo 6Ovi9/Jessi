@@ -30,3 +30,6 @@ db.lock
 # Temporary files
 *.tmp
 *.temp
+
+# Flutter SDK folder in root
+/Flutter/

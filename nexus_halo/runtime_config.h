@@ -10,7 +10,7 @@
 // ============================================================================
 // This replaces the hardcoded #define colors when the user customizes via app.
 
-#define RUNTIME_CONFIG_MAGIC  0xCF69  // "CF" = config
+#define RUNTIME_CONFIG_MAGIC  0xCF7E  // "CF" = config (v6)
 #define RUNTIME_CONFIG_FILE   "config.dat"
 
 struct RuntimeConfig {
@@ -40,6 +40,9 @@ struct RuntimeConfig {
   
   // IMU wake threshold
   uint8_t  wakeThreshold;
+
+  // Gyroscope wrist-flick threshold (dps)
+  uint16_t gyroThreshold;
 };
 
 class RuntimeConfigManager {
@@ -51,6 +54,12 @@ public:
   
   // Get current config (always valid — defaults if not loaded)
   const RuntimeConfig& getConfig() const { return config; }
+  
+  // Set brightness and save to flash
+  void setBrightnessPercent(uint8_t pct) {
+    config.brightnessPercent = pct;
+    saveToFlash();
+  }
   
   // Update config from BLE JSON string
   // Returns true if successfully parsed and saved

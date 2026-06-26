@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -42,42 +43,42 @@ class WatchPreviewWidget extends StatefulWidget {
   State<WatchPreviewWidget> createState() => _WatchPreviewWidgetState();
 }
 
-class _WatchPreviewWidgetState extends State<WatchPreviewWidget>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animController;
+class _WatchPreviewWidgetState extends State<WatchPreviewWidget> {
+  /// Timer de 1 segundo para sincronizar el reloj con la hora real
+  Timer? _clockTimer;
+  DateTime _now = DateTime.now();
 
   @override
   void initState() {
     super.initState();
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 60),
-    )..repeat();
+    // Tick cada 100ms para animación suave de segundos
+    _clockTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (mounted) {
+        setState(() {
+          _now = DateTime.now();
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
-    _animController.dispose();
+    _clockTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animController,
-      builder: (context, child) {
-        return CustomPaint(
-          size: Size(widget.size, widget.size),
-          painter: _WatchPainter(
-            mode: widget.mode,
-            config: widget.config,
-            isConnected: widget.isConnected,
-            bearing: widget.bearing,
-            distanceKm: widget.distanceKm,
-            animationValue: _animController.value,
-          ),
-        );
-      },
+    return CustomPaint(
+      size: Size(widget.size, widget.size),
+      painter: _WatchPainter(
+        mode: widget.mode,
+        config: widget.config,
+        isConnected: widget.isConnected,
+        bearing: widget.bearing,
+        distanceKm: widget.distanceKm,
+        now: _now,
+      ),
     );
   }
 }
@@ -89,7 +90,7 @@ class _WatchPainter extends CustomPainter {
   final bool isConnected;
   final double bearing;
   final double distanceKm;
-  final double animationValue;
+  final DateTime now;
 
   _WatchPainter({
     required this.mode,
@@ -97,7 +98,7 @@ class _WatchPainter extends CustomPainter {
     required this.isConnected,
     required this.bearing,
     required this.distanceKm,
-    required this.animationValue,
+    required this.now,
   });
 
   @override
@@ -156,14 +157,17 @@ class _WatchPainter extends CustomPainter {
 
   void _drawClockMode(
       Canvas canvas, Offset center, double ringRadius, double ledRadius) {
-    final now = DateTime.now();
     final brightness = config.brightnessPercent / 100.0;
 
-    // Calcular posiciones de las agujas
-    final hourPos = (now.hour % 12).toDouble();
-    final minutePos = now.minute / 60.0 * 12.0;
+    // Calcular posiciones de las agujas con hora REAL
+    // Horas: LED 0-11 (0 = 12h, 1 = 1h, ...)
+    final hourPos = (now.hour % 12).toDouble() +
+        now.minute / 60.0; // avance suave dentro de la hora
+    // Minutos: 0-11 LEDs mapeados a 0-60 min
+    final minutePos = now.minute / 60.0 * 12.0 + now.second / 3600.0 * 12.0;
+    // Segundos: interpolación suave con milisegundos
     final secondPos =
-        (now.second + now.millisecond / 1000.0) / 60.0 * 12.0 + animationValue * 12;
+        (now.second + now.millisecond / 1000.0) / 60.0 * 12.0;
 
     // Colores según estado de conexión
     final hourColor =
@@ -185,33 +189,35 @@ class _WatchPainter extends CustomPainter {
       double ledBrightness = 0;
 
       // ¿Es el LED de la hora?
-      if (i == hourPos.floor()) {
+      if (i == hourPos.floor() % 12) {
         ledColor = hourColor;
         ledBrightness = brightness;
       }
 
       // ¿Es el LED de los minutos? (prioridad sobre horas)
-      if (i == minutePos.floor()) {
+      if (i == minutePos.floor() % 12) {
         ledColor = minuteColor;
         ledBrightness = brightness;
       }
 
-      // ¿Es el LED de los segundos? (máxima prioridad)
+      // ¿Es el LED de los segundos? (máxima prioridad — interpolación suave)
       final secondMain = secondPos.floor() % 12;
       final secondNext = (secondMain + 1) % 12;
       final secondFraction = secondPos - secondPos.floor();
 
       if (i == secondMain) {
         final gamma = config.logarithmicBrightness ? 2.2 : 1.0;
-        ledBrightness = brightness * pow(1.0 - secondFraction, gamma);
-        if (ledBrightness > 0.05) {
+        final frac = brightness * pow(1.0 - secondFraction, gamma);
+        if (frac > 0.02) {
           ledColor = secondColor;
+          ledBrightness = frac.toDouble();
         }
       } else if (i == secondNext) {
         final gamma = config.logarithmicBrightness ? 2.2 : 1.0;
-        ledBrightness = brightness * pow(secondFraction, gamma);
-        if (ledBrightness > 0.05) {
+        final frac = brightness * pow(secondFraction, gamma);
+        if (frac > 0.02) {
           ledColor = secondColor;
+          ledBrightness = frac.toDouble();
         }
       }
 
@@ -252,10 +258,22 @@ class _WatchPainter extends CustomPainter {
     final brightness = config.brightnessPercent / 100.0;
     const maxDistance = 500.0; // km
 
-    // Calcular LEDs encendidos
-    final normalized = (distanceKm / maxDistance).clamp(0.0, 1.0);
-    final ledsOn = (normalized * 11).floor() + 1;
-    final partialBrightness = (normalized * 11) % 1;
+    // Calculamos la distancia en escala logarítmica para ser sensibles a cortas distancias.
+    // Idéntico al firmware en C++
+    double dM = distanceKm * 1000.0;
+    if (dM < 10.0) dM = 10.0; // Mínimo 10 metros
+    
+    final logDist = log(dM) / ln10; // log10(x) = ln(x) / ln(10)
+    final normalized = ((logDist - 1.0) / 5.7).clamp(0.0, 1.0);
+    
+    final ledsFloat = 1.0 + normalized * 11.0;
+    int ledsOn = ledsFloat.floor();
+    double partialBrightness = ledsFloat - ledsOn;
+    
+    if (ledsOn >= 12) {
+      ledsOn = 12;
+      partialBrightness = 0.0;
+    }
 
     // Colores por rango de distancia
     const distanceColors = [
@@ -350,11 +368,12 @@ class _WatchPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _WatchPainter oldDelegate) {
-    return oldDelegate.animationValue != animationValue ||
+    return oldDelegate.now != now ||
         oldDelegate.mode != mode ||
         oldDelegate.bearing != bearing ||
         oldDelegate.distanceKm != distanceKm ||
-        oldDelegate.isConnected != isConnected;
+        oldDelegate.isConnected != isConnected ||
+        oldDelegate.config != config;
   }
 }
 

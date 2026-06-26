@@ -27,8 +27,7 @@ const String supabaseUrl = 'http://100.103.87.29:8000';
 const String supabaseAnonKey =
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9.3B1Uvi60MBpMQhXe8MAXU8oyuByp6sZJKib_8mYj3jw';
 
-/// ID del usuario actual. Cambiar a 'B' en el teléfono de la pareja.
-const String myUserId = 'A';
+// El ID de usuario actual se determina dinámicamente desde SharedPreferences.
 
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -78,7 +77,7 @@ class CouplesWatchApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => PartnerRepository()),
       ],
       child: MaterialApp(
-        title: 'Couples Watch',
+        title: 'Nexus Halo',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           brightness: Brightness.dark,
@@ -124,6 +123,9 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
   bool _initialized = false;
   String? _bootError;
   String _bootStep = 'Inicializando...';
+  String? _selectedUserRole;
+  String? _tempSelectedRole;
+  bool _showUserRoleSelection = false;
 
   @override
   void initState() {
@@ -146,18 +148,34 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
     print('[APP] Bootstrapping...');
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final role = prefs.getString('user_role');
+
+      if (role == null) {
+        setState(() {
+          _showUserRoleSelection = true;
+          _initialized = true;
+        });
+        return;
+      }
+
+      _selectedUserRole = role;
+
       // 1. Inicializar repositorio y sync (con timeout)
       setState(() => _bootStep = 'Conectando al servidor...');
-      await partnerRepo.initialize(myUserId)
+      await partnerRepo.initialize(_selectedUserRole!)
           .timeout(const Duration(seconds: 8));
       
       setState(() => _bootStep = 'Sincronizando...');
-      await syncService.initialize(myUserId)
+      await syncService.initialize(_selectedUserRole!)
           .timeout(const Duration(seconds: 8));
+
+      // Limpiar eventos hápticos antiguos en segundo plano
+      syncService.cleanupOldHapticEvents();
 
       // 2. Cargar configuración y aplicar intervalos de polling
       setState(() => _bootStep = 'Cargando configuración...');
-      final config = partnerRepo.config ?? WatchConfig.defaultFor(myUserId);
+      final config = partnerRepo.config ?? WatchConfig.defaultFor(_selectedUserRole!);
       locationService.setPollingIntervals(
         precisionS: config.gpsIntervalPrecisionS,
         nearS: config.gpsIntervalNearS,
@@ -225,7 +243,6 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       await locationService.start();
 
       // 7. Auto-reconectar BLE si hay dispositivo guardado
-      final prefs = await SharedPreferences.getInstance();
       final savedDeviceId = prefs.getString('ble_device_id');
       if (savedDeviceId != null) {
         print('[APP] Auto-reconnecting to saved device: $savedDeviceId');
@@ -261,7 +278,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
               ),
               const SizedBox(height: 24),
               const Text(
-                'Couples Watch',
+                'Nexus Halo',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
@@ -294,6 +311,10 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       );
     }
 
+    if (_showUserRoleSelection) {
+      return _buildUserSelectionScreen();
+    }
+
     // Mostrar error como snackbar si hubo uno durante bootstrap
     if (_bootError != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -314,5 +335,205 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
     }
 
     return const HomeScreen();
+  }
+
+  Widget _buildUserSelectionScreen() {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0A0A1A),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Spacer(),
+              // Icono / Logo
+              Center(
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4488FF).withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(0xFF4488FF).withValues(alpha: 0.3),
+                      width: 2,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.favorite_rounded,
+                    color: Color(0xFF4488FF),
+                    size: 40,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 32),
+              const Text(
+                'Elige tu Rol',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                  letterSpacing: -1.0,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Para sincronizar las ubicaciones y los toques hápticos, cada miembro de la pareja debe tener un rol diferente.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF8888A0),
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const Spacer(),
+              
+              // Tarjeta Usuario A
+              _buildRoleCard(
+                role: 'A',
+                title: 'Usuario A (Rol A)',
+                subtitle: 'Ambos miembros tienen exactamente las mismas funciones. Configura un móvil como Rol A y el otro como Rol B para sincronizarse.',
+                icon: Icons.looks_one_rounded,
+                color: const Color(0xFF4488FF),
+              ),
+              const SizedBox(height: 16),
+              
+              // Tarjeta Usuario B
+              _buildRoleCard(
+                role: 'B',
+                title: 'Usuario B (Rol B)',
+                subtitle: 'Ambos miembros tienen exactamente las mismas funciones. Configura un móvil como Rol A y el otro como Rol B para sincronizarse.',
+                icon: Icons.looks_two_rounded,
+                color: const Color(0xFF00CC88),
+              ),
+              
+              const Spacer(),
+              
+              // Botón Confirmar
+              ElevatedButton(
+                onPressed: _tempSelectedRole == null
+                    ? null
+                    : () async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('user_role', _tempSelectedRole!);
+                        setState(() {
+                          _showUserRoleSelection = false;
+                          _initialized = false;
+                        });
+                        _bootstrap();
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4488FF),
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.white.withValues(alpha: 0.05),
+                  disabledForegroundColor: Colors.white.withValues(alpha: 0.25),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  elevation: 0,
+                ),
+                child: const Text(
+                  'Confirmar y Continuar',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoleCard({
+    required String role,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+  }) {
+    final isSelected = _tempSelectedRole == role;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _tempSelectedRole = role;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? color.withValues(alpha: 0.08)
+              : Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected
+                ? color
+                : Colors.white.withValues(alpha: 0.08),
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.15),
+                    blurRadius: 16,
+                    spreadRadius: 1,
+                  )
+                ]
+              : null,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? color.withValues(alpha: 0.15)
+                    : Colors.white.withValues(alpha: 0.05),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: isSelected ? color : Colors.white60,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? color : Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withValues(alpha: 0.5),
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

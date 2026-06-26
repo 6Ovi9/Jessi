@@ -61,7 +61,7 @@
     <!-- ════════════════════════════════════════════════════════════════════ -->
 
     <application
-        android:label="Couples Watch"
+        android:label="Nexus Halo"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"

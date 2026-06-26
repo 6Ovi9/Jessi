@@ -55,7 +55,7 @@ private:
   bool state_changed;
   
   uint32_t state_entered_ms;    // Timestamp when current state was entered
-  uint32_t timer_expire_ms;     // When the current timer expires
+  uint32_t timer_start_ms;      // Timestamp when the current timer started
   uint32_t timer_duration_ms;   // How long the timer is set for
   bool timer_active;
   

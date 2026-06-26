@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/config_model.dart';
+import '../repositories/partner_repository.dart';
 import '../services/bearing_calculator.dart';
 import '../services/ble_service.dart';
 import '../services/location_service.dart';
@@ -51,6 +52,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final bleService = context.watch<BleService>();
     final locationService = context.watch<LocationService>();
     final syncService = context.watch<SyncService>();
+    final repo = context.watch<PartnerRepository>();
+    final watchConfig = repo.config ?? WatchConfig.defaultFor('A');
 
     final isConnected = bleService.connectionState == BleConnectionState.connected;
     final distanceKm = locationService.distanceKm;
@@ -81,7 +84,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     tag: 'watch_preview',
                     child: WatchPreviewWidget(
                       mode: _previewMode,
-                      config: WatchConfig.defaultFor('A'),
+                      config: watchConfig,
                       isConnected: isConnected,
                       bearing: bearing,
                       distanceKm: distanceKm >= 0 ? distanceKm : 0,
@@ -136,7 +139,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Couples Watch',
+                'Nexus Halo',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,

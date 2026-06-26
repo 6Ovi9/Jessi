@@ -22,8 +22,20 @@ public:
   void update();
   
   // Check if battery is low or critical
-  bool isLowBattery() const { return battery_percent < LOW_BATTERY_THRESHOLD_PERCENT; }
-  bool isCriticalBattery() const { return battery_percent < CRITICAL_BATTERY_PERCENT; }
+  bool isLowBattery() const {
+#if DEBUG_BYPASS_BATTERY_CHECK
+    return false;
+#else
+    return battery_percent < LOW_BATTERY_THRESHOLD_PERCENT;
+#endif
+  }
+  bool isCriticalBattery() const {
+#if DEBUG_BYPASS_BATTERY_CHECK
+    return false;
+#else
+    return battery_percent < CRITICAL_BATTERY_PERCENT;
+#endif
+  }
   
   // Enter deep sleep mode
   void enterDeepSleep();
@@ -51,6 +63,7 @@ private:
   
   // ADC pin for battery voltage (if available)
   int pin_battery_adc;
+  uint8_t wake_threshold;
   
   // Helper methods
   uint8_t _readBatteryVoltage();

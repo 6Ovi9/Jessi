@@ -1,9 +1,9 @@
-# Couples Watch Firmware v1.2 — Compilation Validation
+# Nexus Halo Firmware v1.2 — Compilation Validation
 
 ## Pre-Compilation Checklist
 
 ### 1. File Presence
-- [x] couples_watch.ino (20.5 KB)
+- [x] nexus_halo.ino (20.5 KB)
 - [x] config.h (12.4 KB)
 - [x] state_machine.h/.cpp (2.4 KB + 4.9 KB)
 - [x] gesture.h/.cpp (1.4 KB + 3.7 KB)
@@ -19,7 +19,7 @@
 
 ### 2. Include Dependencies
 
-#### couples_watch.ino
+#### nexus_halo.ino
 ```cpp
 #include "config.h"                // ✓
 #include "state_machine.h"         // ✓
@@ -72,7 +72,7 @@ STATE_CALIBRATION_MODE,     // 10 NEW v1.2
 STATE_OTA_MODE              // 11
 ```
 
-All states handled in couples_watch.ino main loop:
+All states handled in nexus_halo.ino main loop:
 - [x] STATE_DEEP_SLEEP → handleStateDeepSleep()
 - [x] STATE_WAKING_UP → handleStateWakingUp()
 - [x] STATE_CLOCK_CONNECTED → handleStateClockConnected()
@@ -113,7 +113,7 @@ All handled in state handler functions:
 
 ### 4. Global Objects Initialization
 
-#### couples_watch.ino Global Scope
+#### nexus_halo.ino Global Scope
 ```cpp
 StateMachine state_machine;
 GestureDetector gesture_detector;
@@ -269,7 +269,7 @@ void onButtonWakeup() {
   last_wake_source = WAKE_SOURCE_TAP;
 }
 ```
-- [x] Defined in couples_watch.ino
+- [x] Defined in nexus_halo.ino
 - [x] Attached in setup(): attachInterrupt(D8, onButtonWakeup, RISING)
 - [x] Sets wake source variable
 
@@ -279,7 +279,7 @@ void onMotionWakeup() {
   last_wake_source = WAKE_SOURCE_MOTION;
 }
 ```
-- [x] Defined in couples_watch.ino
+- [x] Defined in nexus_halo.ino
 - [x] Attached conditionally: if (IMU_WAKE_ENABLED)
 - [x] Sets wake source variable
 - [x] Conditional compilation with #if
@@ -309,7 +309,7 @@ void onMotionWakeup() {
 - [x] getCalibThreshold() public method
 - [x] calib_threshold member variable
 
-#### couples_watch.ino
+#### nexus_halo.ino
 - [x] handleStateCalibration() implementation complete
 - [x] onBLECalibStart() callback implemented
 - [x] onBLECalibEnd() callback implemented

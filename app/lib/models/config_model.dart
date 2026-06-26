@@ -39,6 +39,9 @@ class WatchConfig {
   // IMU wake-on-motion threshold
   final int wakeThreshold;
 
+  // Gyroscope wrist-flick threshold (dps)
+  final int gyroThreshold;
+
   const WatchConfig({
     required this.userId,
     this.clockTimeoutS = 5,
@@ -52,13 +55,15 @@ class WatchConfig {
     this.brightnessPercent = 60,
     this.lowBatteryThreshold = 15,
     this.logarithmicBrightness = true,
-    this.hapticPattern = 'default',
+    this.hapticPattern = 'both',
     this.gpsIntervalPrecisionS = 3,
+
     this.gpsIntervalNearS = 60,
     this.gpsIntervalFarS = 180,
     this.gpsIntervalRemoteMinS = 300,
     this.gpsIntervalRemoteMaxS = 600,
     this.wakeThreshold = 2,
+    this.gyroThreshold = 260,
   });
 
   /// Crear config por defecto para un usuario
@@ -81,13 +86,15 @@ class WatchConfig {
       brightnessPercent: json['brightness_percent'] as int? ?? 60,
       lowBatteryThreshold: json['low_battery_threshold'] as int? ?? 15,
       logarithmicBrightness: json['logarithmic_brightness'] as bool? ?? true,
-      hapticPattern: json['haptic_pattern'] as String? ?? 'default',
+      hapticPattern: json['haptic_pattern'] as String? ?? 'both',
+
       gpsIntervalPrecisionS: json['gps_interval_precision_s'] as int? ?? 3,
       gpsIntervalNearS: json['gps_interval_near_s'] as int? ?? 60,
       gpsIntervalFarS: json['gps_interval_far_s'] as int? ?? 180,
       gpsIntervalRemoteMinS: json['gps_interval_remote_min_s'] as int? ?? 300,
       gpsIntervalRemoteMaxS: json['gps_interval_remote_max_s'] as int? ?? 600,
       wakeThreshold: json['wake_threshold'] as int? ?? 2,
+      gyroThreshold: json['gyro_threshold'] as int? ?? 260,
     );
   }
 
@@ -113,6 +120,7 @@ class WatchConfig {
       'gps_interval_remote_min_s': gpsIntervalRemoteMinS,
       'gps_interval_remote_max_s': gpsIntervalRemoteMaxS,
       'wake_threshold': wakeThreshold,
+      'gyro_threshold': gyroThreshold,
     };
   }
 
@@ -131,8 +139,9 @@ class WatchConfig {
       'br': brightnessPercent,
       'lb': lowBatteryThreshold,
       'lg': logarithmicBrightness ? 1 : 0,
-      'hp': hapticPattern,
+      'hp': hapticPattern == 'partner' ? 1 : 0,
       'wt': wakeThreshold,
+      'gt': gyroThreshold,
     };
   }
 
@@ -169,6 +178,7 @@ class WatchConfig {
     int? gpsIntervalRemoteMinS,
     int? gpsIntervalRemoteMaxS,
     int? wakeThreshold,
+    int? gyroThreshold,
   }) {
     return WatchConfig(
       userId: userId ?? this.userId,
@@ -190,6 +200,7 @@ class WatchConfig {
       gpsIntervalRemoteMinS: gpsIntervalRemoteMinS ?? this.gpsIntervalRemoteMinS,
       gpsIntervalRemoteMaxS: gpsIntervalRemoteMaxS ?? this.gpsIntervalRemoteMaxS,
       wakeThreshold: wakeThreshold ?? this.wakeThreshold,
+      gyroThreshold: gyroThreshold ?? this.gyroThreshold,
     );
   }
 }

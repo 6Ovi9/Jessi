@@ -3,7 +3,8 @@
 
 #include "config.h"
 #include <Arduino.h>
-#include <Adafruit_LSM6DS3TRC.h>
+#include <LSM6DS3.h>  // Seeed official library
+#undef Wire           // Prevent LSM6DS3.h from redefining Wire to Wire1 in our code
 #include <cmath>
 
 // ============================================================================
@@ -15,6 +16,9 @@
 class IMUCalibrator {
 public:
   IMUCalibrator();
+  
+  // Initialize with reference to LSM6DS3 (must be called before begin())
+  void setIMU(LSM6DS3* sensor) { imu_ptr = sensor; }
   
   // Start calibration (user will perform gesture N times)
   void begin();
@@ -55,12 +59,12 @@ private:
   // Result
   uint8_t calculated_threshold;
   
-  // Reference to IMU
-  Adafruit_LSM6DS3TRC imu;
+  // Pointer to external LSM6DS3 (set via setIMU())
+  LSM6DS3* imu_ptr;
   
   // Helper methods
   float _calculateAccelMagnitude(float x, float y, float z);
-  bool _isGestureActive(float accel_mag, uint32_t now_ms);
+  bool _isGestureActive(float dynamic_accel, uint32_t now_ms);
   void _recordGestureEnd();
   uint8_t _calculateOptimalThreshold();
 };

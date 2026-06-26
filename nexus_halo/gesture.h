@@ -3,17 +3,20 @@
 
 #include "config.h"
 #include <Arduino.h>
+#include <LSM6DS3.h>
+#undef Wire
+#include <cmath>
 
 // ============================================================================
-// GESTURE DETECTION (TTP223 Button)
+// GESTURE DETECTION (LSM6DS3 Gyroscope / Accelerometer)
 // ============================================================================
-// Debounced button input with multi-tap gesture recognition
+// Detects wrist flicks/twists using the gyroscope to replace capacitive button
 
 class GestureDetector {
 public:
   GestureDetector();
   
-  // Initialize (set pin, attach interrupt if needed)
+  // Initialize
   void begin();
   
   // Call frequently from loop (~10ms)
@@ -22,29 +25,46 @@ public:
   // Get detected gesture (clears after reading)
   GestureType getGesture();
   
-  // Raw button state
+  // Clear flick tracking states
+  void reset();
+  
+  // Set reference to the LSM6DS3 sensor
+  void setIMU(LSM6DS3* sensor) { imu_ptr = sensor; }
+
+  // Set gyro threshold dynamically
+  void setThreshold(uint16_t ths) { gyro_threshold = ths; }
+  
+  // Raw button state (kept for backward compatibility)
   bool isButtonPressed() const { return button_pressed; }
   
   // Debug info
   uint32_t getButtonPressDuration() const;
 
 private:
-  // Pin and state
+  // Pin and state (legacy)
   int pin_button;
   bool button_pressed;
   bool button_pressed_last;
   
-  // Debounce
+  // Debounce (legacy)
   uint32_t last_edge_ms;
   
-  // Tap detection
+  // Tap detection (legacy)
   uint32_t tap_start_ms;
   uint32_t tap_end_ms;
   bool tap_in_progress;
   
-  // Double-tap detection
+  // Double-tap detection (legacy)
   uint32_t first_tap_end_ms;
   bool waiting_for_second_tap;
+  
+  // Gyro flick detection (NEW)
+  LSM6DS3* imu_ptr;
+  uint32_t last_flick_ms;
+  uint32_t first_flick_ms;
+  bool waiting_for_second_flick;
+  bool flick_reset;
+  uint16_t gyro_threshold;
   
   // Gesture result
   GestureType detected_gesture;
@@ -53,7 +73,6 @@ private:
   // Helper methods
   void _onButtonDown(uint32_t now_ms);
   void _onButtonUp(uint32_t now_ms);
-  void _evaluateGesture();
 };
 
 #endif // GESTURE_H

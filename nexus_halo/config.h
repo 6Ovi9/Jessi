@@ -21,7 +21,7 @@
 
 #define LED_COUNT            12    // 12× SK6812 MINI-E (RGB+W)
 #define LED_BRIGHTNESS_MAX   255   // Max PWM value
-#define LED_CLOCK_BRIGHTNESS 60    // Default brightness % for CLOCK mode (will be applied as 0-255)
+#define LED_CLOCK_BRIGHTNESS 30    // Default brightness % for CLOCK mode (will be applied as 0-255)
 
 // LED positions (physical mapping)
 // LED 0 = 12h (top), LED 3 = 3h (right), LED 6 = 6h (bottom), LED 9 = 9h (left)
@@ -44,7 +44,7 @@
 // STATE TIMERS (auto-transition timing)
 // ============================================================================
 
-#define TIMER_CLOCK_TIMEOUT_MS        5000    // CLOCK → DEEP_SLEEP timeout (default)
+#define TIMER_CLOCK_TIMEOUT_MS        10000   // CLOCK → DEEP_SLEEP timeout (default)
 #define TIMER_RADAR_TIMEOUT_MS        5000    // RADAR/DISTANCE → CLOCK timeout
 #define TIMER_HAPTIC_RX_TIMEOUT_MS    3000    // HAPTIC_RX → previous state (safety)
 #define TIMER_WAKING_UP_MS            200     // WAKING_UP transitional time
@@ -55,6 +55,10 @@
 // POWER MANAGEMENT & BATTERY
 // ============================================================================
 
+#define DEBUG_BYPASS_BATTERY_CHECK     0      // 1 = bypass battery checks for USB testing, 0 = normal operation
+#define DEBUG_DISABLE_DEEP_SLEEP       0      // 1 = stay awake for testing, 0 = normal sleep behavior
+#define DEBUG_VERBOSE_OUTPUT           1      // 1 = detailed debug logs, 0 = minimal output
+
 #define LOW_BATTERY_THRESHOLD_PERCENT  15     // % threshold to show LOW_BATTERY overlay
 #define CRITICAL_BATTERY_PERCENT       5      // % threshold to force DEEP_SLEEP
 
@@ -64,8 +68,8 @@
 // BLE CONFIGURATION
 // ============================================================================
 
-#define BLE_SERVICE_NAME             "Couples Watch"
-#define BLE_DEVICE_NAME              "Jessi Watch"
+#define BLE_SERVICE_NAME             "Nexus Halo"
+#define BLE_DEVICE_NAME              "Nexus Halo"
 #define BLE_ADVERTISING_INTERVAL_MS  100     // Minimal advertising in DEEP_SLEEP
 
 // Custom BLE service UUID (128-bit)
@@ -94,8 +98,8 @@ enum BLE_CHAR_ID {
 // ============================================================================
 
 #define COMPASS_I2C_ADDRESS  0x1C   // Default I2C address for LIS3MDL
-#define COMPASS_UPDATE_RATE_HZ 10   // Update frequency
-#define COMPASS_HEADING_ALPHA  0.1f // IIR filter factor for heading smoothing
+#define COMPASS_UPDATE_RATE_HZ 10   // Update frequency (10Hz para no saturar I2C)
+#define COMPASS_HEADING_ALPHA  0.5f // Alpha alto (0.5) para que siga reaccionando rápido al giro
 
 // Hard-iron & soft-iron offsets (calibration)
 // Defaults; can be overwritten by app config
@@ -120,15 +124,15 @@ enum BLE_CHAR_ID {
 // COLOR SCHEMES (ARGB8888 format: 0xAARRGGBB)
 // ============================================================================
 
-// CLOCK_CONNECTED (whites)
-#define COLOR_HOURS_CONNECTED    0xFFFFDCB4   // Warm white
-#define COLOR_MINUTES_CONNECTED  0xFFFFF5F0   // Neutral white
-#define COLOR_SECONDS_CONNECTED  0xFFC8DCFF   // Cool white
+// CLOCK_CONNECTED (pink)
+#define COLOR_HOURS_CONNECTED    0xFFFF6699   // Pink
+#define COLOR_MINUTES_CONNECTED  0xFFFF6699   // Pink
+#define COLOR_SECONDS_CONNECTED  0xFFFF6699   // Pink
 
-// CLOCK_DISCONNECTED (blues)
-#define COLOR_HOURS_DISC         0xFF001478   // Dark blue
-#define COLOR_MINUTES_DISC       0xFF003CC8   // Medium blue
-#define COLOR_SECONDS_DISC       0xFF2864FF   // Bright blue
+// CLOCK_DISCONNECTED (pink)
+#define COLOR_HOURS_DISC         0xFFFF6699   // Pink
+#define COLOR_MINUTES_DISC       0xFFFF6699   // Pink
+#define COLOR_SECONDS_DISC       0xFFFF6699   // Pink
 
 // RADAR & DISTANCE modes
 #define COLOR_RADAR              0xFFFFB900   // Warm amber
@@ -179,10 +183,27 @@ enum BLE_CHAR_ID {
 #define IMU_WAKE_ENABLED           1       // 1 = enabled, 0 = disabled (use only tap)
 #define IMU_ACCEL_RATE_HZ          26      // Low-power rate (26Hz minimum)
 #define IMU_ACCEL_RANGE_G          2       // ±2G range (sufficient for wrist motion)
-#define IMU_WAKE_UP_THS_DEFAULT    0x02    // Default threshold (~312mg at ±2G)
-#define IMU_WAKE_UP_THS_MIN        0x00    // Minimum threshold (most sensitive)
-#define IMU_WAKE_UP_THS_MAX        0xFF    // Maximum threshold (least sensitive)
-#define IMU_WAKE_UP_DUR            0x00    // Duration threshold (1 sample at 26Hz ≈ 38ms)
+
+// Wake-up threshold: 1 LSB = 62.5 mg at ±2G, 6-bit field (bits[5:0])
+//   0x02 = 125 mg  ← too sensitive, triggers on table vibrations
+//   0x08 = 500 mg  ← good for wrist raise (recommended)
+//   0x10 = 1000 mg ← only strong flicks
+//   0x20 = 2000 mg ← maximum practical
+#define IMU_WAKE_UP_THS_DEFAULT    0x08    // 500 mg — firm wrist raise needed
+#define IMU_WAKE_UP_THS_MIN        0x01    // 62.5 mg (most sensitive)
+#define IMU_WAKE_UP_THS_MAX        0x3F    // 3.94 G (least sensitive, max 6-bit)
+
+// Gyroscope wrist-flick gesture sensitivity (dps)
+#define GESTURE_GYRO_THS_DEFAULT   260     // 260 dps — default wrist flick threshold
+#define GESTURE_GYRO_THS_MIN       100     // 100 dps
+#define GESTURE_GYRO_THS_MAX       500     // 500 dps
+
+// Duration: consecutive samples that must exceed threshold before INT1 fires
+// At 26 Hz each sample = 38 ms
+//   0x00 = 1 sample  = 38 ms  ← triggers on single-sample spikes/noise
+//   0x01 = 2 samples = 77 ms
+//   0x02 = 3 samples = 115 ms ← filters out most vibrations (recommended)
+#define IMU_WAKE_UP_DUR            0x01    // 2 samples = ~77ms sustained motion
 
 // Calibration constants
 #define CALIBRATION_NUM_SAMPLES    5       // Number of gestures to capture

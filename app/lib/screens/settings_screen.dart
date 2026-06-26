@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
+import '../main.dart';
 import '../models/config_model.dart';
 import '../repositories/partner_repository.dart';
 import '../services/ble_service.dart';
 import '../widgets/watch_preview_widget.dart';
+import 'wake_calibration_screen.dart';
+import 'wrist_flick_calibration_screen.dart';
 
 /// Pantalla de configuración del reloj.
 ///
@@ -68,6 +73,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final repo = context.watch<PartnerRepository>();
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A1A),
       appBar: AppBar(
@@ -171,16 +177,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Horas',
               _config.hoursConnectedColor,
               _config.colorHoursConnected,
+              (hex) => _updateConfig((c) => c.copyWith(colorHoursConnected: hex)),
             ),
             _buildColorTile(
               'Minutos',
               _config.minutesConnectedColor,
               _config.colorMinutesConnected,
+              (hex) => _updateConfig((c) => c.copyWith(colorMinutesConnected: hex)),
             ),
             _buildColorTile(
               'Segundos',
               _config.secondsConnectedColor,
               _config.colorSecondsConnected,
+              (hex) => _updateConfig((c) => c.copyWith(colorSecondsConnected: hex)),
             ),
           ]),
 
@@ -190,16 +199,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Horas',
               _config.hoursDiscColor,
               _config.colorHoursDisc,
+              (hex) => _updateConfig((c) => c.copyWith(colorHoursDisc: hex)),
             ),
             _buildColorTile(
               'Minutos',
               _config.minutesDiscColor,
               _config.colorMinutesDisc,
+              (hex) => _updateConfig((c) => c.copyWith(colorMinutesDisc: hex)),
             ),
             _buildColorTile(
               'Segundos',
               _config.secondsDiscColor,
               _config.colorSecondsDisc,
+              (hex) => _updateConfig((c) => c.copyWith(colorSecondsDisc: hex)),
             ),
           ]),
 
@@ -251,10 +263,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildSection('Rise-to-Wake', [
             _buildSliderTile(
               'Sensibilidad de wake',
-              '0x${_config.wakeThreshold.toRadixString(16).padLeft(2, '0').toUpperCase()}',
+              '${(_config.wakeThreshold * 62.5).toInt()} mg',
               _config.wakeThreshold.toDouble(),
-              0,
-              10,
+              1,
+              32,
               (value) => _updateConfig(
                   (c) => c.copyWith(wakeThreshold: value.round())),
               activeColor: const Color(0xFF8866FF),
@@ -263,8 +275,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: Text(
-                'Menor valor = más sensible. Default: 0x02 (~312mg).\n'
-                'Si despierta solo: subir. Si no detecta: bajar.',
+                '1 LSB = 62.5 mg. Menor valor = más sensible.\n'
+                'Recomendado: 500 mg (reg 0x08). Si despierta solo: subir. Si no detecta: bajar.',
                 style: TextStyle(
                   fontSize: 11,
                   color: Colors.white.withValues(alpha: 0.25),
@@ -272,9 +284,103 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const WakeCalibrationScreen(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.tune_rounded, size: 18),
+                  label: const Text('Calibración avanzada'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1E1C2E),
+                    foregroundColor: const Color(0xFFBB88FF),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+
+          // ── Giro de muñeca ──────────────────────────────────────────
+          _buildSection('Giro de muñeca (Wrist Flick)', [
+            _buildSliderTile(
+              'Sensibilidad de giro',
+              '${_config.gyroThreshold} dps',
+              _config.gyroThreshold.toDouble(),
+              100,
+              500,
+              (value) => _updateConfig(
+                  (c) => c.copyWith(gyroThreshold: value.round())),
+              activeColor: const Color(0xFF00CC88),
+            ),
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Text(
+                'Umbral de velocidad en grados por segundo (dps). Menor valor = más sensible.\n'
+                'Recomendado: 260 dps. Si se activa solo al mover el brazo: subir. Si no detecta: bajar.',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.white.withValues(alpha: 0.25),
+                  height: 1.4,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const WristFlickCalibrationScreen(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.sync_rounded, size: 18),
+                  label: const Text('Calibrar giro'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1C2E24),
+                    foregroundColor: const Color(0xFF88FFBB),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+
+          // ── Notificaciones ──────────────────────────────────────────
+          _buildSection('Notificaciones', [
+            _buildDropdownTile<String>(
+              'Quién vibra al tocar',
+              'Selecciona qué relojes vibran con un doble toque',
+              _config.hapticPattern == 'partner' ? 'partner' : 'both',
+              const {
+                'both': 'Ambos relojes',
+                'partner': 'Solo el de tu pareja',
+              },
+              (value) {
+                if (value != null) {
+                  _updateConfig((c) => c.copyWith(hapticPattern: value));
+                }
+              },
+            ),
           ]),
 
           // ── Firmware Update (OTA) ───────────────────────────────────
+
           _buildSection('Firmware', [
             Padding(
               padding: const EdgeInsets.all(16),
@@ -324,10 +430,379 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ]),
 
+          // ── Rol de Usuario ─────────────────────────────────────────
+          _buildSection('Sesión', [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Rol actual del usuario: ${repo.myUserId == "A" ? "Usuario A (Rol A)" : "Usuario B (Rol B)"}\n'
+                    'Al cambiar el rol, se reiniciará la sincronización con el servidor.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withValues(alpha: 0.35),
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _changeUserRole(repo),
+                      icon: const Icon(Icons.swap_horiz, size: 18),
+                      label: const Text('Cambiar Rol de Usuario'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1F1A2A),
+                        foregroundColor: const Color(0xFFFF9988),
+                        disabledBackgroundColor:
+                            Colors.white.withValues(alpha: 0.05),
+                        disabledForegroundColor:
+                            Colors.white.withValues(alpha: 0.2),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ]),
+
           const SizedBox(height: 40),
         ],
       ),
     );
+  }
+
+  // ── Diálogos y Helpers ───────────────────────────────────────────────────
+
+  void _showColorPicker(String title, String currentHexAarrggbb, ValueChanged<String> onSelected) {
+    String currentRgb = currentHexAarrggbb.length == 8 
+        ? currentHexAarrggbb.substring(2) 
+        : currentHexAarrggbb;
+        
+    final controller = TextEditingController(text: currentRgb);
+    Color previewColor = WatchConfig.parseColor('FF$currentRgb');
+    bool isValid = true;
+
+    final List<Map<String, dynamic>> presets = [
+      {'name': 'Ámbar', 'hex': 'FFB900'},
+      {'name': 'Cian', 'hex': '00CCFF'},
+      {'name': 'Menta', 'hex': '00CC88'},
+      {'name': 'Rosa', 'hex': 'FF6699'},
+      {'name': 'Azul', 'hex': '4488FF'},
+      {'name': 'Púrpura', 'hex': 'BB88FF'},
+      {'name': 'Blanco Cálido', 'hex': 'FFDCB4'},
+      {'name': 'Rojo Neon', 'hex': 'FF4444'},
+    ];
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            void updatePreview(String text) {
+              final cleaned = text.replaceAll('#', '').trim();
+              final regExp = RegExp(r'^[0-9a-fA-F]{6}$');
+              if (regExp.hasMatch(cleaned)) {
+                setStateDialog(() {
+                  previewColor = WatchConfig.parseColor('FF$cleaned');
+                  isValid = true;
+                });
+              } else {
+                setStateDialog(() {
+                  isValid = false;
+                });
+              }
+            }
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1A1A2E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Text('Elegir Color para $title', style: const TextStyle(color: Colors.white)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          color: isValid ? previewColor : Colors.grey.shade800,
+                          shape: BoxShape.circle,
+                          boxShadow: isValid
+                              ? [
+                                  BoxShadow(
+                                    color: previewColor.withValues(alpha: 0.4),
+                                    blurRadius: 16,
+                                    spreadRadius: 2,
+                                  )
+                                ]
+                              : null,
+                          border: Border.all(
+                            color: Colors.white24,
+                            width: 2,
+                          ),
+                        ),
+                        child: !isValid
+                            ? const Icon(Icons.help_outline, color: Colors.white54, size: 32)
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: controller,
+                      onChanged: updatePreview,
+                      style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Código Hexadecimal (RRGGBB)',
+                        labelStyle: const TextStyle(color: Colors.white60),
+                        prefixText: '# ',
+                        prefixStyle: const TextStyle(color: Colors.white54, fontSize: 16),
+                        errorText: isValid ? null : 'Código inválido (ej: FF5500)',
+                        enabledBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.white24),
+                        ),
+                        focusedBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(color: Color(0xFF4488FF)),
+                        ),
+                        errorBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.redAccent),
+                        ),
+                        focusedErrorBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.redAccent),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'PRESETS RECOMENDADOS',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white38,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: presets.map((p) {
+                        final pHex = p['hex'] as String;
+                        final pColor = WatchConfig.parseColor('FF$pHex');
+                        return InkWell(
+                          onTap: () {
+                            controller.text = pHex;
+                            updatePreview(pHex);
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.04),
+                              border: Border.all(
+                                color: controller.text.toUpperCase() == pHex
+                                    ? pColor
+                                    : Colors.white.withValues(alpha: 0.05),
+                                width: 1.5,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: pColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  p['name'] as String,
+                                  style: const TextStyle(fontSize: 11, color: Colors.white70),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+                ),
+                TextButton(
+                  onPressed: isValid
+                      ? () {
+                          final cleaned = controller.text.replaceAll('#', '').trim().toUpperCase();
+                          onSelected('FF$cleaned');
+                          Navigator.pop(ctx);
+                        }
+                      : null,
+                  child: const Text('Seleccionar', style: TextStyle(color: Color(0xFF4488FF))),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _startCalibration(BleService ble) async {
+    int progress = 0;
+    bool completed = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            ble.onCalibrationProgress = (samplesDone) {
+              setStateDialog(() {
+                progress = samplesDone;
+                if (progress >= 5) {
+                  completed = true;
+                }
+              });
+              if (progress >= 5) {
+                Future.delayed(const Duration(milliseconds: 1500), () {
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx);
+                  }
+                });
+              }
+            };
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF121224),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.fitness_center_rounded, color: Color(0xFFBB88FF)),
+                  const SizedBox(width: 8),
+                  Text(
+                    completed ? '¡Calibración Completada!' : 'Calibrando...',
+                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 12),
+                  if (!completed) ...[
+                    const Text(
+                      'Realiza el gesto de levantar la muñeca para mirar la hora. Hazlo con normalidad 5 veces consecutivas.',
+                      style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Gesto $progress de 5 registrado',
+                      style: const TextStyle(
+                        color: Color(0xFFBB88FF),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(
+                      value: progress / 5.0,
+                      backgroundColor: Colors.white.withValues(alpha: 0.05),
+                      color: const Color(0xFFBB88FF),
+                      minHeight: 6,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ] else ...[
+                    const Icon(Icons.check_circle_rounded,
+                        color: Color(0xFF00CC88), size: 64),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Se ha calculado tu umbral óptimo y guardado en el reloj.',
+                      style: TextStyle(color: Colors.white70, fontSize: 13),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                ],
+              ),
+              actions: [
+                if (!completed)
+                  TextButton(
+                    onPressed: () {
+                      ble.cancelCalibration();
+                      Navigator.pop(ctx);
+                    },
+                    child: const Text('Cancelar',
+                        style: TextStyle(color: Colors.grey)),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    await ble.startCalibration();
+  }
+
+  Future<void> _changeUserRole(PartnerRepository repo) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('¿Cambiar Rol de Usuario?',
+            style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Esto cambiará tu rol actual (${repo.myUserId}) al rol contrario (${repo.partnerUserId}).\n\n'
+          'La app se reiniciará para aplicar los cambios y sincronizarse con Supabase.',
+          style: const TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child:
+                const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Cambiar y Reiniciar',
+                style: TextStyle(color: Color(0xFFFF9988))),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_role', repo.partnerUserId);
+
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => const WithForegroundTask(child: AppBootstrapper()),
+          ),
+          (route) => false,
+        );
+      }
+    }
   }
 
   // ── OTA ──────────────────────────────────────────────────────────────────
@@ -507,42 +982,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildColorTile(String label, Color color, String hexValue) {
+  Widget _buildColorTile(String label, Color color, String hexValue, ValueChanged<String> onColorSelected) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _showColorPicker(label, hexValue, onColorSelected),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              // Preview de color
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withValues(alpha: 0.75),
+                  ),
+                ),
+              ),
+              Text(
+                '#${hexValue.length == 8 ? hexValue.substring(2) : hexValue}',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  color: Colors.white.withValues(alpha: 0.3),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 16,
+                color: Colors.white.withValues(alpha: 0.2),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDropdownTile<T>(
+    String label,
+    String subtitle,
+    T currentValue,
+    Map<T, String> options,
+    ValueChanged<T?> onChanged,
+  ) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          // Preview de color
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.3),
-                  blurRadius: 8,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withValues(alpha: 0.75),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.white.withValues(alpha: 0.35),
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.white.withValues(alpha: 0.75),
-              ),
+          const SizedBox(width: 8),
+          Theme(
+            data: Theme.of(context).copyWith(
+              canvasColor: const Color(0xFF1A1A2E),
             ),
-          ),
-          Text(
-            '#$hexValue',
-            style: TextStyle(
-              fontSize: 12,
-              fontFamily: 'monospace',
-              color: Colors.white.withValues(alpha: 0.3),
+            child: DropdownButton<T>(
+              value: currentValue,
+              items: options.entries.map((entry) {
+                return DropdownMenuItem<T>(
+                  value: entry.key,
+                  child: Text(
+                    entry.value,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                );
+              }).toList(),
+              onChanged: onChanged,
+              underline: const SizedBox(),
+              icon: const Icon(Icons.arrow_drop_down_rounded, color: Colors.white54),
+              dropdownColor: const Color(0xFF16162A),
+              style: const TextStyle(color: Colors.white, fontSize: 13),
             ),
           ),
         ],
@@ -550,3 +1098,4 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 }
+

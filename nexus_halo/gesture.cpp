@@ -10,50 +10,91 @@ GestureDetector::GestureDetector()
     tap_in_progress(false),
     first_tap_end_ms(0),
     waiting_for_second_tap(false),
+    imu_ptr(nullptr),
+    last_flick_ms(0),
+    first_flick_ms(0),
+    waiting_for_second_flick(false),
+    flick_reset(true),
+    gyro_threshold(GESTURE_GYRO_THS_DEFAULT),
     detected_gesture(GESTURE_NONE),
     gesture_reported(true)
 {
 }
 
 void GestureDetector::begin() {
-  pinMode(pin_button, INPUT);
+  pinMode(pin_button, INPUT_PULLDOWN);
   button_pressed = false;
   button_pressed_last = false;
   tap_in_progress = false;
   waiting_for_second_tap = false;
+  last_flick_ms = 0;
+  first_flick_ms = 0;
+  waiting_for_second_flick = false;
+  flick_reset = true;
   detected_gesture = GESTURE_NONE;
   gesture_reported = true;
 }
 
 void GestureDetector::update(uint32_t now_ms) {
-  // Read button (debounced)
-  bool button_raw = digitalRead(pin_button) == HIGH;
-  
-  // Apply debounce
-  if (button_raw != button_pressed_last) {
-    if ((now_ms - last_edge_ms) >= DEBOUNCE_MS) {
-      button_pressed = button_raw;
-      button_pressed_last = button_raw;
-      last_edge_ms = now_ms;
+  // If we have a reference to the IMU, use gyroscope flick detection
+  if (imu_ptr) {
+    float gx = imu_ptr->readFloatGyroX();
+    float gy = imu_ptr->readFloatGyroY();
+    float gz = imu_ptr->readFloatGyroZ();
+    
+    float gyro_mag = sqrt(gx*gx + gy*gy + gz*gz);
+    
+    // We detect a flick if the gyro magnitude exceeds a threshold
+    // and we haven't detected a flick recently (e.g. last 400ms cooldown)
+    // and the sensor returned to a quiet state (< 80 dps) since the last flick.
+    if (gyro_mag > gyro_threshold && (now_ms - last_flick_ms) > 400 && flick_reset) {
+      last_flick_ms = now_ms;
+      flick_reset = false;
+      Serial.print("[GESTURE] Gyro flick detected: ");
+      Serial.println(gyro_mag);
       
-      // Rising edge (button pressed down)
-      if (button_pressed) {
-        _onButtonDown(now_ms);
+      if (waiting_for_second_flick) {
+        // Double flick!
+        uint32_t gap = now_ms - first_flick_ms;
+        if (gap <= 800) {
+          detected_gesture = GESTURE_TAP_DOUBLE;
+          gesture_reported = false;
+          waiting_for_second_flick = false;
+          Serial.println("[GESTURE] GESTURE_TAP_DOUBLE (Double Flick)");
+        } else {
+          // Gap too long, treat as first flick of a new potential double flick
+          first_flick_ms = now_ms;
+          waiting_for_second_flick = true;
+        }
+      } else {
+        first_flick_ms = now_ms;
+        waiting_for_second_flick = true;
       }
-      // Falling edge (button released)
-      else {
-        _onButtonUp(now_ms);
-      }
+    }
+    
+    // Reset quiet state flag if the gyro magnitude falls below quiet threshold
+    if (gyro_mag < 80.0f) {
+      flick_reset = true;
     }
   }
   
-  // Check for long press (if still held)
-  if (tap_in_progress && button_pressed) {
-    uint32_t hold_time = now_ms - tap_start_ms;
-    
-    // Press long detected (but we'll wait for release to confirm)
-    // For now, we only detect on release
+  // Check double-flick timeout: if we were waiting for a second flick
+  // but it didn't come within 500ms, report a single flick (short press)!
+  if (waiting_for_second_flick && (now_ms - first_flick_ms) > 500) {
+    detected_gesture = GESTURE_PRESS_SHORT;
+    gesture_reported = false;
+    waiting_for_second_flick = false;
+    Serial.println("[GESTURE] GESTURE_PRESS_SHORT (Single Flick)");
   }
+}
+
+void GestureDetector::reset() {
+  last_flick_ms = 0;
+  first_flick_ms = 0;
+  waiting_for_second_flick = false;
+  flick_reset = true;
+  detected_gesture = GESTURE_NONE;
+  gesture_reported = true;
 }
 
 void GestureDetector::_onButtonDown(uint32_t now_ms) {

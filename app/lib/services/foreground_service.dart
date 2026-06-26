@@ -22,8 +22,8 @@ class ForegroundService {
   static void initialize() {
     FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
-        channelId: 'couples_watch_foreground',
-        channelName: 'Couples Watch',
+        channelId: 'nexus_halo_foreground',
+        channelName: 'Nexus Halo',
         channelDescription: 'Servicio de seguimiento de ubicación y conexión BLE',
         channelImportance: NotificationChannelImportance.LOW,
         priority: NotificationPriority.LOW,
@@ -63,7 +63,7 @@ class ForegroundService {
 
     try {
       final result = await FlutterForegroundTask.startService(
-        notificationTitle: 'Couples Watch activo',
+        notificationTitle: 'Nexus Halo activo',
         notificationText: 'Conectado y rastreando ubicación',
         callback: _startCallback,
       );
@@ -96,7 +96,7 @@ class ForegroundService {
     String? text,
   }) async {
     await FlutterForegroundTask.updateService(
-      notificationTitle: title ?? 'Couples Watch activo',
+      notificationTitle: title ?? 'Nexus Halo activo',
       notificationText: text ?? 'Conectado y rastreando ubicación',
     );
   }

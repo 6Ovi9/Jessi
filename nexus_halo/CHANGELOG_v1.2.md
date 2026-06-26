@@ -1,4 +1,4 @@
-# Couples Watch Firmware v1.2 — Changelog
+# Nexus Halo Firmware v1.2 — Changelog
 
 ## Overview
 Firmware adaptation from v1.1 to v1.2 to support rise-to-wake functionality via LSM6DS3 IMU motion detection with automatic gesture-based calibration.
@@ -94,7 +94,7 @@ Firmware adaptation from v1.1 to v1.2 to support rise-to-wake functionality via 
 - `notifyCalibThreshold(uint8_t threshold)` — Notify app of final threshold
 - `getCalibThreshold()` — Read current threshold
 
-### 7. Main Loop Changes (`couples_watch.ino`)
+### 7. Main Loop Changes (`nexus_halo.ino`)
 
 #### New Global Objects
 - `IMUCalibrator imu_calibrator` — Gesture capture engine

@@ -1,5 +1,7 @@
 #include "eeprom_manager.h"
 
+using namespace Adafruit_LittleFS_Namespace;
+
 EEPROMManager::EEPROMManager()
   : last_calib_time(0),
     initialized(false)
@@ -87,7 +89,7 @@ bool EEPROMManager::saveCalibration(uint8_t threshold) {
   }
   
   // Write data
-  if (file.write(&data, sizeof(data)) != sizeof(data)) {
+  if (file.write((const uint8_t*)&data, sizeof(data)) != sizeof(data)) {
     file.close();
     // Serial.println("[EEPROM] Failed to write calibration data");
     return false;
