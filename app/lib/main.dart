@@ -97,8 +97,8 @@ class CouplesWatchApp extends StatelessWidget {
           fontFamily: 'sans-serif',
           useMaterial3: true,
         ),
-        home: WithForegroundTask(
-          child: const AppBootstrapper(),
+        home: const WithForegroundTask(
+          child: AppBootstrapper(),
         ),
       ),
     );

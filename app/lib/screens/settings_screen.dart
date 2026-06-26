@@ -267,7 +267,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'Si despierta solo: subir. Si no detecta: bajar.',
                 style: TextStyle(
                   fontSize: 11,
-                  color: Colors.white.withOpacity(0.25),
+                  color: Colors.white.withValues(alpha: 0.25),
                   height: 1.4,
                 ),
               ),
@@ -286,7 +286,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'DFU y se podrá flashear sin abrirlo.',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.white.withOpacity(0.35),
+                      color: Colors.white.withValues(alpha: 0.35),
                       height: 1.4,
                     ),
                   ),
@@ -307,9 +307,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             backgroundColor: const Color(0xFF2A1A3A),
                             foregroundColor: const Color(0xFFBB88FF),
                             disabledBackgroundColor:
-                                Colors.white.withOpacity(0.05),
+                                Colors.white.withValues(alpha: 0.05),
                             disabledForegroundColor:
-                                Colors.white.withOpacity(0.2),
+                                Colors.white.withValues(alpha: 0.2),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
@@ -394,15 +394,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               fontSize: 11,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.2,
-              color: Colors.white.withOpacity(0.3),
+              color: Colors.white.withValues(alpha: 0.3),
             ),
           ),
         ),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.04),
+            color: Colors.white.withValues(alpha: 0.04),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(0.04)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
           ),
           child: Column(children: children),
         ),
@@ -430,7 +430,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label,
                 style: TextStyle(
                   fontSize: 14,
-                  color: Colors.white.withOpacity(0.75),
+                  color: Colors.white.withValues(alpha: 0.75),
                 ),
               ),
               Text(
@@ -446,10 +446,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           SliderTheme(
             data: SliderThemeData(
-              activeTrackColor: activeColor.withOpacity(0.6),
-              inactiveTrackColor: Colors.white.withOpacity(0.06),
+              activeTrackColor: activeColor.withValues(alpha: 0.6),
+              inactiveTrackColor: Colors.white.withValues(alpha: 0.06),
               thumbColor: activeColor,
-              overlayColor: activeColor.withOpacity(0.1),
+              overlayColor: activeColor.withValues(alpha: 0.1),
               trackHeight: 3,
               thumbShape:
                   const RoundSliderThumbShape(enabledThumbRadius: 6),
@@ -484,14 +484,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   label,
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.white.withOpacity(0.75),
+                    color: Colors.white.withValues(alpha: 0.75),
                   ),
                 ),
                 Text(
                   subtitle,
                   style: TextStyle(
                     fontSize: 11,
-                    color: Colors.white.withOpacity(0.3),
+                    color: Colors.white.withValues(alpha: 0.3),
                   ),
                 ),
               ],
@@ -521,7 +521,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: color.withOpacity(0.3),
+                  color: color.withValues(alpha: 0.3),
                   blurRadius: 8,
                 ),
               ],
@@ -533,7 +533,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               label,
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.white.withOpacity(0.75),
+                color: Colors.white.withValues(alpha: 0.75),
               ),
             ),
           ),
@@ -542,7 +542,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: TextStyle(
               fontSize: 12,
               fontFamily: 'monospace',
-              color: Colors.white.withOpacity(0.3),
+              color: Colors.white.withValues(alpha: 0.3),
             ),
           ),
         ],

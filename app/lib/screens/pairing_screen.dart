@@ -135,12 +135,12 @@ class _PairingScreenState extends State<PairingScreen>
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            statusColor.withOpacity(0.12),
-            statusColor.withOpacity(0.04),
+            statusColor.withValues(alpha: 0.12),
+            statusColor.withValues(alpha: 0.04),
           ],
         ),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: statusColor.withOpacity(0.15)),
+        border: Border.all(color: statusColor.withValues(alpha: 0.15)),
       ),
       child: Row(
         children: [
@@ -149,7 +149,7 @@ class _PairingScreenState extends State<PairingScreen>
             height: 56,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: statusColor.withOpacity(0.15),
+              color: statusColor.withValues(alpha: 0.15),
             ),
             child: Icon(statusIcon, color: statusColor, size: 28),
           ),
@@ -171,7 +171,7 @@ class _PairingScreenState extends State<PairingScreen>
                     statusSubtext,
                     style: TextStyle(
                       fontSize: 13,
-                      color: Colors.white.withOpacity(0.35),
+                      color: Colors.white.withValues(alpha: 0.35),
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -258,7 +258,7 @@ class _PairingScreenState extends State<PairingScreen>
               fontSize: 11,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.2,
-              color: Colors.white.withOpacity(0.3),
+              color: Colors.white.withValues(alpha: 0.3),
             ),
           ),
           Text(
@@ -266,7 +266,7 @@ class _PairingScreenState extends State<PairingScreen>
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: Colors.white.withOpacity(0.4),
+              color: Colors.white.withValues(alpha: 0.4),
             ),
           ),
         ],
@@ -299,17 +299,17 @@ class _PairingScreenState extends State<PairingScreen>
               gradient: isJessi
                   ? LinearGradient(
                       colors: [
-                        const Color(0xFF4488FF).withOpacity(0.12),
-                        const Color(0xFF4488FF).withOpacity(0.04),
+                        const Color(0xFF4488FF).withValues(alpha: 0.12),
+                        const Color(0xFF4488FF).withValues(alpha: 0.04),
                       ],
                     )
                   : null,
-              color: isJessi ? null : Colors.white.withOpacity(0.04),
+              color: isJessi ? null : Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: isJessi
-                    ? const Color(0xFF4488FF).withOpacity(0.2)
-                    : Colors.white.withOpacity(0.04),
+                    ? const Color(0xFF4488FF).withValues(alpha: 0.2)
+                    : Colors.white.withValues(alpha: 0.04),
               ),
             ),
             child: Row(
@@ -321,14 +321,14 @@ class _PairingScreenState extends State<PairingScreen>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: isJessi
-                        ? const Color(0xFF4488FF).withOpacity(0.15)
-                        : Colors.white.withOpacity(0.06),
+                        ? const Color(0xFF4488FF).withValues(alpha: 0.15)
+                        : Colors.white.withValues(alpha: 0.06),
                   ),
                   child: Icon(
                     isJessi ? Icons.watch_rounded : Icons.bluetooth_rounded,
                     color: isJessi
                         ? const Color(0xFF4488FF)
-                        : Colors.white.withOpacity(0.4),
+                        : Colors.white.withValues(alpha: 0.4),
                     size: 22,
                   ),
                 ),
@@ -346,14 +346,14 @@ class _PairingScreenState extends State<PairingScreen>
                           fontWeight: FontWeight.w600,
                           color: isJessi
                               ? Colors.white
-                              : Colors.white.withOpacity(0.6),
+                              : Colors.white.withValues(alpha: 0.6),
                         ),
                       ),
                       Text(
                         device.id,
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.white.withOpacity(0.25),
+                          color: Colors.white.withValues(alpha: 0.25),
                           fontFamily: 'monospace',
                         ),
                       ),
@@ -374,7 +374,7 @@ class _PairingScreenState extends State<PairingScreen>
                       '${device.rssi} dBm',
                       style: TextStyle(
                         fontSize: 10,
-                        color: Colors.white.withOpacity(0.25),
+                        color: Colors.white.withValues(alpha: 0.25),
                       ),
                     ),
                   ],
@@ -397,7 +397,7 @@ class _PairingScreenState extends State<PairingScreen>
                 ? Icons.bluetooth_searching_rounded
                 : Icons.watch_off_rounded,
             size: 56,
-            color: Colors.white.withOpacity(0.1),
+            color: Colors.white.withValues(alpha: 0.1),
           ),
           const SizedBox(height: 16),
           Text(
@@ -406,7 +406,7 @@ class _PairingScreenState extends State<PairingScreen>
                 : 'Toca "Escanear" para buscar tu reloj',
             style: TextStyle(
               fontSize: 14,
-              color: Colors.white.withOpacity(0.25),
+              color: Colors.white.withValues(alpha: 0.25),
             ),
           ),
         ],
@@ -426,7 +426,7 @@ class _PairingScreenState extends State<PairingScreen>
           Icon(
             Icons.info_outline_rounded,
             size: 18,
-            color: Colors.white.withOpacity(0.3),
+            color: Colors.white.withValues(alpha: 0.3),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -435,7 +435,7 @@ class _PairingScreenState extends State<PairingScreen>
               'está activado en tu dispositivo.',
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.white.withOpacity(0.25),
+                color: Colors.white.withValues(alpha: 0.25),
                 height: 1.4,
               ),
             ),

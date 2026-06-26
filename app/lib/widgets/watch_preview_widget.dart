@@ -130,13 +130,13 @@ class _WatchPainter extends CustomPainter {
   void _drawBackground(Canvas canvas, Offset center, double radius) {
     // Fondo oscuro del reloj
     final bgPaint = Paint()
-      ..shader = RadialGradient(
+      ..shader = const RadialGradient(
         colors: [
-          const Color(0xFF1A1A2E),
-          const Color(0xFF0F0F1A),
-          const Color(0xFF050510),
+          Color(0xFF1A1A2E),
+          Color(0xFF0F0F1A),
+          Color(0xFF050510),
         ],
-        stops: const [0.0, 0.7, 1.0],
+        stops: [0.0, 0.7, 1.0],
       ).createShader(Rect.fromCircle(center: center, radius: radius));
     canvas.drawCircle(center, radius, bgPaint);
 
@@ -146,9 +146,9 @@ class _WatchPainter extends CustomPainter {
       ..strokeWidth = 2
       ..shader = SweepGradient(
         colors: [
-          Colors.white.withOpacity(0.1),
-          Colors.white.withOpacity(0.03),
-          Colors.white.withOpacity(0.1),
+          Colors.white.withValues(alpha: 0.1),
+          Colors.white.withValues(alpha: 0.03),
+          Colors.white.withValues(alpha: 0.1),
         ],
       ).createShader(Rect.fromCircle(center: center, radius: radius));
     canvas.drawCircle(center, radius - 1, borderPaint);
@@ -222,7 +222,7 @@ class _WatchPainter extends CustomPainter {
   void _drawRadarMode(
       Canvas canvas, Offset center, double ringRadius, double ledRadius) {
     final brightness = config.brightnessPercent / 100.0;
-    final radarColor = const Color(0xFFFFB900); // Ámbar cálido
+    const radarColor = Color(0xFFFFB900); // Ámbar cálido
 
     // Calcular LED index desde bearing
     final ledIndex = (bearing / 360 * 12).round() % 12;
@@ -250,7 +250,7 @@ class _WatchPainter extends CustomPainter {
   void _drawDistanceMode(
       Canvas canvas, Offset center, double ringRadius, double ledRadius) {
     final brightness = config.brightnessPercent / 100.0;
-    final maxDistance = 500.0; // km
+    const maxDistance = 500.0; // km
 
     // Calcular LEDs encendidos
     final normalized = (distanceKm / maxDistance).clamp(0.0, 1.0);
@@ -297,7 +297,7 @@ class _WatchPainter extends CustomPainter {
       Canvas canvas, Offset pos, double radius, Color color, double brightness) {
     // LED base (siempre visible, muy tenue)
     final basePaint = Paint()
-      ..color = Colors.white.withOpacity(0.03)
+      ..color = Colors.white.withValues(alpha: 0.03)
       ..style = PaintingStyle.fill;
     canvas.drawCircle(pos, radius, basePaint);
 
@@ -305,20 +305,20 @@ class _WatchPainter extends CustomPainter {
 
     // LED encendido
     final ledPaint = Paint()
-      ..color = color.withOpacity(brightness.clamp(0.0, 1.0))
+      ..color = color.withValues(alpha: brightness.clamp(0.0, 1.0))
       ..style = PaintingStyle.fill;
     canvas.drawCircle(pos, radius, ledPaint);
 
     // Glow effect
     final glowPaint = Paint()
-      ..color = color.withOpacity((brightness * 0.4).clamp(0.0, 0.4))
+      ..color = color.withValues(alpha: (brightness * 0.4).clamp(0.0, 0.4))
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 1.5);
     canvas.drawCircle(pos, radius * 1.2, glowPaint);
   }
 
   void _drawHourMarks(Canvas canvas, Offset center, double radius) {
     final markPaint = Paint()
-      ..color = Colors.white.withOpacity(0.15)
+      ..color = Colors.white.withValues(alpha: 0.15)
       ..strokeWidth = 1.5
       ..strokeCap = StrokeCap.round;
 
@@ -338,10 +338,10 @@ class _WatchPainter extends CustomPainter {
       // Marcas más gruesas en 12, 3, 6, 9
       if (i % 3 == 0) {
         markPaint.strokeWidth = 2.5;
-        markPaint.color = Colors.white.withOpacity(0.25);
+        markPaint.color = Colors.white.withValues(alpha: 0.25);
       } else {
         markPaint.strokeWidth = 1.5;
-        markPaint.color = Colors.white.withOpacity(0.12);
+        markPaint.color = Colors.white.withValues(alpha: 0.12);
       }
 
       canvas.drawLine(start, end, markPaint);

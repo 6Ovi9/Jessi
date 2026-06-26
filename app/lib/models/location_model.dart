@@ -53,7 +53,7 @@ class LocationModel {
   @override
   String toString() =>
       'LocationModel($userId: $latitude, $longitude ±${accuracy.toStringAsFixed(0)}m '
-      '[${pollingMode}] ${age.inSeconds}s ago)';
+      '[$pollingMode] ${age.inSeconds}s ago)';
 
   LocationModel copyWith({
     String? userId,

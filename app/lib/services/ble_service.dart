@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
@@ -334,7 +333,9 @@ class BleService extends ChangeNotifier {
   /// [bearing] es el rumbo absoluto hacia la pareja en grados [0, 360).
   Future<void> writeBearing(double bearing) async {
     if (_connectionState != BleConnectionState.connected ||
-        _connectedDeviceId == null) return;
+        _connectedDeviceId == null) {
+      return;
+    }
 
     final characteristic = QualifiedCharacteristic(
       serviceId: _serviceUuid,
@@ -360,7 +361,9 @@ class BleService extends ChangeNotifier {
   /// [distanceMeters] es la distancia en metros.
   Future<void> writeDistance(int distanceMeters) async {
     if (_connectionState != BleConnectionState.connected ||
-        _connectedDeviceId == null) return;
+        _connectedDeviceId == null) {
+      return;
+    }
 
     final characteristic = QualifiedCharacteristic(
       serviceId: _serviceUuid,
@@ -387,7 +390,9 @@ class BleService extends ChangeNotifier {
   /// Se llama cuando la pareja envía un toque via Supabase.
   Future<void> sendHapticCommand() async {
     if (_connectionState != BleConnectionState.connected ||
-        _connectedDeviceId == null) return;
+        _connectedDeviceId == null) {
+      return;
+    }
 
     final characteristic = QualifiedCharacteristic(
       serviceId: _serviceUuid,
@@ -408,7 +413,9 @@ class BleService extends ChangeNotifier {
   /// [config] es el modelo de configuración con todos los parámetros.
   Future<void> writeConfig(WatchConfig config) async {
     if (_connectionState != BleConnectionState.connected ||
-        _connectedDeviceId == null) return;
+        _connectedDeviceId == null) {
+      return;
+    }
 
     final characteristic = QualifiedCharacteristic(
       serviceId: _serviceUuid,
@@ -434,7 +441,9 @@ class BleService extends ChangeNotifier {
   /// Use a DFU library (nordic_dfu) to then upload the new firmware.
   Future<void> triggerOTA() async {
     if (_connectionState != BleConnectionState.connected ||
-        _connectedDeviceId == null) return;
+        _connectedDeviceId == null) {
+      return;
+    }
 
     final characteristic = QualifiedCharacteristic(
       serviceId: _serviceUuid,
@@ -458,7 +467,9 @@ class BleService extends ChangeNotifier {
   /// Iniciar calibración de wake-on-motion
   Future<void> startCalibration() async {
     if (_connectionState != BleConnectionState.connected ||
-        _connectedDeviceId == null) return;
+        _connectedDeviceId == null) {
+      return;
+    }
 
     final characteristic = QualifiedCharacteristic(
       serviceId: _serviceUuid,
@@ -480,7 +491,9 @@ class BleService extends ChangeNotifier {
   /// Cancelar calibración en curso
   Future<void> cancelCalibration() async {
     if (_connectionState != BleConnectionState.connected ||
-        _connectedDeviceId == null) return;
+        _connectedDeviceId == null) {
+      return;
+    }
 
     final characteristic = QualifiedCharacteristic(
       serviceId: _serviceUuid,
@@ -500,7 +513,9 @@ class BleService extends ChangeNotifier {
   /// Escribir umbral de wake-on-motion
   Future<void> writeWakeThreshold(int threshold) async {
     if (_connectionState != BleConnectionState.connected ||
-        _connectedDeviceId == null) return;
+        _connectedDeviceId == null) {
+      return;
+    }
 
     final characteristic = QualifiedCharacteristic(
       serviceId: _serviceUuid,

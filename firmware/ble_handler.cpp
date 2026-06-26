@@ -24,7 +24,7 @@ BLEHandler::BLEHandler()
     haptic_tx_char(BLE_HAPTIC_TX_UUID, BLERead | BLENotify),
     haptic_rx_char(BLE_HAPTIC_RX_UUID, BLERead | BLEWrite),
     radar_mode_char(BLE_RADAR_MODE_UUID, BLERead | BLENotify),
-    config_char(BLE_CONFIG_UUID, BLERead | BLEWrite),
+    config_char(BLE_CONFIG_UUID, BLERead | BLEWrite, 256),
     battery_char(BLE_BATTERY_UUID, BLERead | BLENotify),
     calib_cmd_char(BLE_CALIB_CMD_UUID, BLERead | BLEWrite),
     calib_status_char(BLE_CALIB_STATUS_UUID, BLERead | BLENotify),
