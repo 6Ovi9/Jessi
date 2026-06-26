@@ -6,6 +6,11 @@
 #include <nrf_power.h>
 #include <nrf_gpio.h>
 
+#ifdef SOFTDEVICE_PRESENT
+#include "nrf_soc.h"
+#include "nrf_sdm.h"
+#endif
+
 #ifndef PIN_VBAT_ENABLE
 #define PIN_VBAT_ENABLE VBAT_ENABLE
 #endif
@@ -105,9 +110,9 @@ void PowerManager::setupIMUForRiseToWake() {
   // 1. Disable Gyroscope to save power (CTRL2_G = 0x00 → off)
   _writeLSM6DS3Register(0x11, 0x00);
 
-  // 2. Enable Accelerometer in low-power mode at 26 Hz (CTRL1_XL = 0x20)
-  //    CTRL1_XL: ODR_XL=0010 (26Hz), FS_XL=00 (±2g), BW_XL=00
-  _writeLSM6DS3Register(0x10, 0x20);
+  // 2. Enable Accelerometer in low-power mode at 12.5 Hz (CTRL1_XL = 0x10)
+  //    CTRL1_XL: ODR_XL=0001 (12.5Hz), FS_XL=00 (±2g), BW_XL=00
+  _writeLSM6DS3Register(0x10, 0x10);
 
   // 3. Enable low-power mode (CTRL6_C bit LPM = 1)
   _writeLSM6DS3Register(0x15, 0x10);
@@ -122,13 +127,13 @@ void PowerManager::setupIMUForRiseToWake() {
   Serial.println(" mg");
 
   // 5. Set wake-up duration (bits[7:6] of WAKE_UP_DUR).
-  //    Each count = 1/ODR_XL = 38 ms at 26 Hz.
+  //    Each count = 1/ODR_XL = 80 ms at 12.5 Hz.
   //    Also clear SLEEP_DUR and TIMER_HR bits → write full register = 0xXX.
   _writeLSM6DS3Register(LSM6DS3_REG_WAKE_UP_DUR, (IMU_WAKE_UP_DUR & 0x03) << 6);
   Serial.print("[POWER] Wake duration: ");
   Serial.print(IMU_WAKE_UP_DUR + 1);
   Serial.print(" sample(s) = ~");
-  Serial.print((IMU_WAKE_UP_DUR + 1) * 38);
+  Serial.print((IMU_WAKE_UP_DUR + 1) * 80);
   Serial.println(" ms");
 
   // 6. Route wake-up interrupt to INT1 pin (MD1_CFG: INT1_WU = bit5)
@@ -173,15 +178,23 @@ void PowerManager::enterDeepSleep() {
   // Configure interrupt for button wake-up (D8)
   // (handled elsewhere)
   
-  // Enter deep sleep using nRF52840 power control
-  // The BLE stack (SoftDevice) must remain active for advertising
+  // Enter deep sleep using nRF52840 power control.
+  // The SoftDevice sleep call (sd_app_evt_wait) is used if active to safely manage power
+  // while keeping Bluetooth low energy operations running.
+#ifdef SOFTDEVICE_PRESENT
+  uint8_t sd_en = 0;
+  (void) sd_softdevice_is_enabled(&sd_en);
   
-  // Wait for interrupt (this is a simplified version)
-  // In production, use: sd_app_evt_wait() from SoftDevice
-  // Or use __WFE() (wait for event) if not using SoftDevice
-  
-  // For now, just sleep the CPU and let interrupts wake it
-  __WFI();  // Wait for interrupt
+  if (sd_en) {
+    (void) sd_app_evt_wait();
+  } else {
+    __WFE();
+    __SEV();
+    __WFE();
+  }
+#else
+  __WFI();
+#endif
 }
 
 void PowerManager::wakeFromSleep() {

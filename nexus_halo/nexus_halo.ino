@@ -155,6 +155,13 @@ void setup() {
   pinMode(PIN_LED_POWER, OUTPUT);
   digitalWrite(PIN_LED_POWER, LOW);
 
+  // Configure unused pins as INPUT_PULLDOWN to prevent leakage current from floating inputs
+  pinMode(D0, INPUT_PULLDOWN);
+  pinMode(D1, INPUT_PULLDOWN);
+  pinMode(D2, INPUT_PULLDOWN);
+  pinMode(D3, INPUT_PULLDOWN);
+  pinMode(D6, INPUT_PULLDOWN);
+
   // ========================================================================
   // Initialize internal I2C bus (Wire1 → LSM6DS3 IMU)
   // ========================================================================
@@ -358,7 +365,8 @@ void loop() {
   // ========================================================================
 
   gesture_detector.setThreshold(runtime_config.getConfig().gyroThreshold);
-  gesture_detector.setDoubleFlickWindow(runtime_config.getConfig().doubleFlickWindow);
+  gesture_detector.setDoubleFlickWindow(
+      runtime_config.getConfig().doubleFlickWindow);
   gesture_detector.update(now_ms);
   compass.update();
   ble_handler.update();
@@ -372,7 +380,8 @@ void loop() {
 
   GestureType gesture = gesture_detector.getGesture();
 
-  // Notify app of gyro flick detection for live calibration feedback (0xFE = Gyro Flick)
+  // Notify app of gyro flick detection for live calibration feedback (0xFE =
+  // Gyro Flick)
   if (gesture != GESTURE_NONE && ble_connected) {
     ble_handler.notifyCalibStatus(0xFE, 0xFE);
   }
@@ -546,6 +555,14 @@ void handleStateDeepSleep(GestureType gesture) {
     digitalWrite(PIN_MOTOR, LOW);
     pinMode(PIN_LED_POWER, OUTPUT);
     digitalWrite(PIN_LED_POWER, LOW);
+
+    // Power down compass magnetometer to save power
+    compass.powerDown();
+
+    // Set low-power BLE advertising if not connected
+    if (!ble_connected) {
+      ble_handler.setLowPowerAdvertising(true);
+    }
   }
 
   // Turn off all peripherals
@@ -581,6 +598,14 @@ void handleStateWakingUp() {
   // Power on LED ring
   led_controller.setPower(true);
 
+  // Restore normal advertising interval if not connected
+  if (!ble_handler.isConnected()) {
+    ble_handler.setLowPowerAdvertising(false);
+  }
+
+  // Power on compass magnetometer
+  compass.powerUp();
+
   // Clear any leftover gestures
   gesture_detector.reset();
 
@@ -590,7 +615,8 @@ void handleStateWakingUp() {
     lsm6ds3.begin();
   }
 
-  // If a haptic event woke the watch or arrived while sleeping, process it first
+  // If a haptic event woke the watch or arrived while sleeping, process it
+  // first
   if (haptic_rx_pending) {
     haptic_rx_pending = false; // Reset flag
     state_machine.transitionTo(STATE_HAPTIC_RX);

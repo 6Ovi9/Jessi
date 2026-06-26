@@ -62,6 +62,9 @@ public:
   
   // Config access (returns last JSON string received from app)
   const char* getConfigJson() const;
+
+  // Power management support
+  void setLowPowerAdvertising(bool enabled);
   
   // OTA (Over-The-Air Update) support
   typedef void (*OTARequestCallback)(void);

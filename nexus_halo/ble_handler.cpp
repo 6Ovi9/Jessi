@@ -162,13 +162,32 @@ void BLEHandler::begin() {
   Bluefruit.ScanResponse.addName();
   
   Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32, 244);
+  // Interval conversion to 0.625ms units: ms * 8 / 5
+  uint32_t adv_interval_units = (BLE_ADVERTISING_INTERVAL_MS * 8) / 5;
+  Bluefruit.Advertising.setInterval(adv_interval_units, adv_interval_units);
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
 }
 
 void BLEHandler::update() {
   // Callbacks handle events in Bluefruit
+}
+
+void BLEHandler::setLowPowerAdvertising(bool enabled) {
+  if (ble_connected)
+    return;
+
+  Serial.print("[BLE] Adjusting advertising interval. Low-power mode: ");
+  Serial.println(enabled ? "ENABLED" : "DISABLED");
+
+  // We must stop advertising before changing the interval, and then restart
+  Bluefruit.Advertising.stop();
+
+  uint32_t interval_ms = enabled ? BLE_ADVERTISING_INTERVAL_MS_SLEEP : BLE_ADVERTISING_INTERVAL_MS;
+  uint32_t interval_units = (interval_ms * 8) / 5; // Convert ms to 0.625ms units
+  
+  Bluefruit.Advertising.setInterval(interval_units, interval_units);
+  Bluefruit.Advertising.start(0);
 }
 
 void BLEHandler::connect_callback(uint16_t conn_handle) {

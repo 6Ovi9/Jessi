@@ -58,6 +58,11 @@ public:
   void saveCalibration();
   void loadCalibration();
 
+  // Control de energía (Deep Sleep)
+  void powerDown();
+  void powerUp();
+  bool isPoweredDown() const { return powered_down; }
+
   // Diagnóstico
   bool isConnected() const { return sensor_connected; }
   float getRawX() const { return raw_x; }
@@ -66,6 +71,7 @@ public:
 
 private:
   bool sensor_connected;
+  bool powered_down;
   uint8_t sensor_address;
   uint8_t zero_reading_count;
 

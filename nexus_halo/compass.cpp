@@ -9,7 +9,7 @@ using namespace Adafruit_LittleFS_Namespace;
 // ============================================================================
 
 CompassController::CompassController()
-    : sensor_connected(false), sensor_address(0x00), zero_reading_count(0),
+    : sensor_connected(false), powered_down(false), sensor_address(0x00), zero_reading_count(0),
       current_heading(0.0f), heading_filtered(0.0f), last_update_ms(0),
       calibrating(false), calibration_start_ms(0), min_x(0), max_x(0), min_y(0),
       max_y(0), min_z(0), max_z(0), offset_x(COMPASS_HARD_IRON_X),
@@ -238,11 +238,41 @@ void CompassController::begin() {
 }
 
 // ============================================================================
+// POWER CONTROL
+// ============================================================================
+
+void CompassController::powerDown() {
+  if (!sensor_connected || powered_down)
+    return;
+
+  // LIS3MDL CTRL_REG3 (0x22) bits[1:0] (MD): 0x03 = Power-Down mode
+  if (_writeReg(LIS3MDL_REG_CTRL3, 0x03)) {
+    powered_down = true;
+    Serial.println("[COMPASS] Power-Down mode activated (0x03 -> CTRL_REG3)");
+  } else {
+    Serial.println("[COMPASS] ✗ Failed to write Power-Down mode (CTRL_REG3)");
+  }
+}
+
+void CompassController::powerUp() {
+  if (!sensor_connected || !powered_down)
+    return;
+
+  // LIS3MDL CTRL_REG3 (0x22) bits[1:0] (MD): 0x00 = Continuous-conversion mode
+  if (_writeReg(LIS3MDL_REG_CTRL3, 0x00)) {
+    powered_down = false;
+    Serial.println("[COMPASS] Continuous conversion restored (0x00 -> CTRL_REG3)");
+  } else {
+    Serial.println("[COMPASS] ✗ Failed to restore continuous conversion (CTRL_REG3)");
+  }
+}
+
+// ============================================================================
 // UPDATE (llamar desde loop)
 // ============================================================================
 
 void CompassController::update() {
-  if (!sensor_connected)
+  if (!sensor_connected || powered_down)
     return;
 
   uint32_t now_ms = millis();

@@ -70,7 +70,8 @@
 
 #define BLE_SERVICE_NAME             "Nexus Halo"
 #define BLE_DEVICE_NAME              "Nexus Halo"
-#define BLE_ADVERTISING_INTERVAL_MS  100     // Minimal advertising in DEEP_SLEEP
+#define BLE_ADVERTISING_INTERVAL_MS  100     // Normal advertising interval in ms
+#define BLE_ADVERTISING_INTERVAL_MS_SLEEP 1600 // Slow advertising interval in ms during deep sleep to save power
 
 // Custom BLE service UUID (128-bit)
 // Format: 12345678-1234-5678-1234-56789ABCDEF0 (example)
@@ -181,7 +182,7 @@ enum BLE_CHAR_ID {
 // ============================================================================
 
 #define IMU_WAKE_ENABLED           1       // 1 = enabled, 0 = disabled (use only tap)
-#define IMU_ACCEL_RATE_HZ          26      // Low-power rate (26Hz minimum)
+#define IMU_ACCEL_RATE_HZ          12.5f   // Low-power rate (12.5Hz minimum)
 #define IMU_ACCEL_RANGE_G          2       // ±2G range (sufficient for wrist motion)
 
 // Wake-up threshold: 1 LSB = 62.5 mg at ±2G, 6-bit field (bits[5:0])
