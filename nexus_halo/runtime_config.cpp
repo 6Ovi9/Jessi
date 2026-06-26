@@ -28,6 +28,7 @@ void RuntimeConfigManager::begin() {
   Serial.print("  - brightnessPercent: "); Serial.print(config.brightnessPercent); Serial.println("%");
   Serial.print("  - logarithmicBrightness: "); Serial.println(config.logarithmicBrightness);
   Serial.print("  - wakeThreshold: "); Serial.println(config.wakeThreshold);
+  Serial.print("  - doubleFlickWindow: "); Serial.print(config.doubleFlickWindow); Serial.println(" ms");
   
   initialized = true;
 }
@@ -47,6 +48,7 @@ void RuntimeConfigManager::resetDefaults() {
   config.hapticPatternIndex    = 0;
   config.wakeThreshold         = IMU_WAKE_UP_THS_DEFAULT;
   config.gyroThreshold         = GESTURE_GYRO_THS_DEFAULT;
+  config.doubleFlickWindow     = GESTURE_DOUBLE_FLICK_WINDOW_DEFAULT;
 }
 
 // ============================================================================
@@ -86,6 +88,7 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
   config.lowBatteryThreshold = _findJsonInt(json, "lb", config.lowBatteryThreshold);
   config.wakeThreshold     = _findJsonInt(json, "wt", config.wakeThreshold);
   config.gyroThreshold     = _findJsonInt(json, "gt", config.gyroThreshold);
+  config.doubleFlickWindow = _findJsonInt(json, "df", config.doubleFlickWindow);
   config.hapticPatternIndex = _findJsonInt(json, "hp", config.hapticPatternIndex);
 
   

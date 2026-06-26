@@ -198,6 +198,11 @@ enum BLE_CHAR_ID {
 #define GESTURE_GYRO_THS_MIN       100     // 100 dps
 #define GESTURE_GYRO_THS_MAX       500     // 500 dps
 
+// Gyroscope double-flick timing window (ms)
+#define GESTURE_DOUBLE_FLICK_WINDOW_DEFAULT 800  // 800 ms
+#define GESTURE_DOUBLE_FLICK_WINDOW_MIN     400  // 400 ms
+#define GESTURE_DOUBLE_FLICK_WINDOW_MAX     1200 // 1200 ms
+
 // Duration: consecutive samples that must exceed threshold before INT1 fires
 // At 26 Hz each sample = 38 ms
 //   0x00 = 1 sample  = 38 ms  ← triggers on single-sample spikes/noise

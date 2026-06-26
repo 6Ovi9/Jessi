@@ -42,6 +42,9 @@ class WatchConfig {
   // Gyroscope wrist-flick threshold (dps)
   final int gyroThreshold;
 
+  // Double-flick window (ms)
+  final int doubleFlickWindowMs;
+
   const WatchConfig({
     required this.userId,
     this.clockTimeoutS = 5,
@@ -64,6 +67,7 @@ class WatchConfig {
     this.gpsIntervalRemoteMaxS = 600,
     this.wakeThreshold = 2,
     this.gyroThreshold = 260,
+    this.doubleFlickWindowMs = 800,
   });
 
   /// Crear config por defecto para un usuario
@@ -95,6 +99,7 @@ class WatchConfig {
       gpsIntervalRemoteMaxS: json['gps_interval_remote_max_s'] as int? ?? 600,
       wakeThreshold: json['wake_threshold'] as int? ?? 2,
       gyroThreshold: json['gyro_threshold'] as int? ?? 260,
+      doubleFlickWindowMs: json['double_flick_window_ms'] as int? ?? 800,
     );
   }
 
@@ -121,6 +126,7 @@ class WatchConfig {
       'gps_interval_remote_max_s': gpsIntervalRemoteMaxS,
       'wake_threshold': wakeThreshold,
       'gyro_threshold': gyroThreshold,
+      'double_flick_window_ms': doubleFlickWindowMs,
     };
   }
 
@@ -142,6 +148,7 @@ class WatchConfig {
       'hp': hapticPattern == 'partner' ? 1 : 0,
       'wt': wakeThreshold,
       'gt': gyroThreshold,
+      'df': doubleFlickWindowMs,
     };
   }
 
@@ -179,6 +186,7 @@ class WatchConfig {
     int? gpsIntervalRemoteMaxS,
     int? wakeThreshold,
     int? gyroThreshold,
+    int? doubleFlickWindowMs,
   }) {
     return WatchConfig(
       userId: userId ?? this.userId,
@@ -201,6 +209,7 @@ class WatchConfig {
       gpsIntervalRemoteMaxS: gpsIntervalRemoteMaxS ?? this.gpsIntervalRemoteMaxS,
       wakeThreshold: wakeThreshold ?? this.wakeThreshold,
       gyroThreshold: gyroThreshold ?? this.gyroThreshold,
+      doubleFlickWindowMs: doubleFlickWindowMs ?? this.doubleFlickWindowMs,
     );
   }
 }

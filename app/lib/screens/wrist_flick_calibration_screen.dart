@@ -24,6 +24,7 @@ class WristFlickCalibrationScreen extends StatefulWidget {
 class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScreen>
     with SingleTickerProviderStateMixin {
   int _threshold = _kThresholdDefault;
+  int _doubleFlickWindowMs = 800;
   bool _isDetected = false;
   Timer? _detectedTimer;
   int _totalDetections = 0;
@@ -40,6 +41,7 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
     final repo = context.read<PartnerRepository>();
     final cfg = repo.config ?? WatchConfig.defaultFor(repo.myUserId);
     _threshold = cfg.gyroThreshold.clamp(_kThresholdMin, _kThresholdMax);
+    _doubleFlickWindowMs = cfg.doubleFlickWindowMs.clamp(400, 1200);
 
     // Animación de flash al detectar el gesto
     _detectCtrl = AnimationController(
@@ -94,6 +96,17 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
     // Enviar configuración completa por BLE (que incluye el gyroThreshold mapeado como 'gt')
     await ble.writeConfig(cfg);
     // Guardar en base de datos local y remota
+    await repo.saveConfig(cfg);
+  }
+
+  Future<void> _writeDoubleFlickWindow(int value) async {
+    final ble = context.read<BleService>();
+    if (ble.connectionState != BleConnectionState.connected) return;
+    
+    final repo = context.read<PartnerRepository>();
+    final cfg = (repo.config ?? WatchConfig.defaultFor(repo.myUserId)).copyWith(doubleFlickWindowMs: value);
+    
+    await ble.writeConfig(cfg);
     await repo.saveConfig(cfg);
   }
 
@@ -241,6 +254,85 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
                       ),
                       Text(
                         'Menos sensible\n$_kThresholdMax dps',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.3),
+                            fontSize: 10,
+                            height: 1.4),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+
+                  // Cabecera del Slider del Timing del Doble Giro
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Ventana de doble giro',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00CC88).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFF00CC88).withValues(alpha: 0.3)),
+                        ),
+                        child: Text(
+                          '$_doubleFlickWindowMs ms',
+                          style: const TextStyle(
+                            color: Color(0xFF00FFCC),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: const Color(0xFF00CC88),
+                      inactiveTrackColor: Colors.white.withValues(alpha: 0.08),
+                      thumbColor: Colors.white,
+                      overlayColor: const Color(0xFF00CC88).withValues(alpha: 0.2),
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
+                      trackHeight: 5,
+                    ),
+                    child: Slider(
+                      value: _doubleFlickWindowMs.toDouble(),
+                      min: 400,
+                      max: 1200,
+                      divisions: 16,
+                      onChanged: connected
+                          ? (v) async {
+                              final newVal = v.round();
+                              setState(() => _doubleFlickWindowMs = newVal);
+                              await _writeDoubleFlickWindow(newVal);
+                            }
+                          : null,
+                    ),
+                  ),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Rápido (Exigente)\n400 ms',
+                        style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.3),
+                            fontSize: 10,
+                            height: 1.4),
+                      ),
+                      Text(
+                        'Lento (Fácil)\n1200 ms',
                         textAlign: TextAlign.right,
                         style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.3),

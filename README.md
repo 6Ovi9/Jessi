@@ -2,7 +2,22 @@
 
 **Nexus Halo** es un sistema IoT integrado para parejas que consta de un **reloj inteligente vestible (wearable)**, una **aplicación móvil de acompañamiento en Flutter (Android)** y un **backend en tiempo real en Supabase (Docker + Tailscale)**.
 
-El reloj cuenta con una corona de 12 LEDs direccionables, brújula magnética, botón táctil capacitivo, motor de vibración háptica y conectividad BLE. A través de la app móvil y el GPS de fondo, los relojes muestran en tiempo real la **dirección física de la pareja (modo Radar)**, la **distancia (modo Distancia)**, la **hora sincronizada**, y permiten **enviar toques vibratorios instantáneos (háptica)**.
+El reloj cuenta con una corona de 12 LEDs direccionables, brújula magnética, botón táctil capacitivo (desactivado en firmware debido a ruido de hardware, reemplazado por gestos del giroscopio), motor de vibración háptica y conectividad BLE. A través de la app móvil y el GPS de fondo, los relojes muestran en tiempo real la **dirección física de la pareja (modo Radar)**, la **distancia (modo Distancia)**, la **hora sincronizada**, y permiten **enviar toques vibratorios instantáneos (háptica)**.
+
+---
+
+## ⚡ Tabla de Funcionalidades Principales
+
+| Funcionalidad | Componentes Involucrados | Descripción | Configurable |
+| :--- | :--- | :--- | :--- |
+| **Reloj y Hora** | XIAO nRF52840, Anillo LED | Muestra la hora actual (horas, minutos y segundos) usando colores personalizables en los 12 LEDs cuando el reloj se despierta. Sincronizado por BLE. | Sí (Colores por usuario) |
+| **Detección Rise-to-Wake** | Acelerómetro LSM6DS3 | Detecta el levantamiento de la muñeca para despertar el reloj automáticamente del modo de bajo consumo (`DEEP_SLEEP`). | Sí (Sensibilidad/Calibración) |
+| **Doble Giro (Haptic TX)** | Giroscopio LSM6DS3, BLE, Haptic | Un doble giro rápido de muñeca (mientras el reloj está despierto) envía un toque háptico instantáneo a la pareja a través de BLE. | Sí (Ventana de doble giro: 400-1200ms) |
+| **Modo Radar** | Magnetómetro LIS3MDL, GPS, Anillo LED | Un LED se enciende indicando la dirección física real (brújula) en la que se encuentra la pareja en tiempo real. | Automático (GPS < 500m) |
+| **Modo Distancia** | GPS, Anillo LED | Rellena la corona de LEDs gradualmente para mostrar de manera visual la distancia a la que se encuentra la pareja. | Sí (Intervalos dinámicos) |
+| **Vibración Recibida (Haptic RX)**| BLE, Motor de Vibración | Al recibir un toque de la pareja, reproduce un patrón de vibración distintivo y una animación de destellos en el anillo LED. | Sí (Quién vibra) |
+| **GPS Polling Dinámico** | Foreground Service de la App, GPS | Ajusta el intervalo de consulta de GPS del móvil según la distancia (de 3s a 10 min) para ahorrar batería en el teléfono. | Sí (Límites de tiempo) |
+| **Actualización OTA** | BLE, DFU Bootloader | Permite cargar nuevas versiones del firmware de forma inalámbrica a través de la app móvil. | N/A |
 
 ---
 
@@ -34,18 +49,22 @@ El código fuente del reloj está escrito para el chip **Seeed Studio XIAO nRF52
 | Componente | Línea/Chip | Pin XIAO | Notas / Tipo de Señal |
 | :--- | :--- | :--- | :--- |
 | **Anillo LED** | 12× SK6812-MINI-E (RGB+W) | `D7` | Datos de un solo cable (NeoPixel). LED 0 a las 12h. |
-| **Alimentación LEDs** | MOSFET Gate | `D10` | `HIGH` = Activa VCC del anillo. `LOW` = Corte total para dormir. |
-| **Botón Táctil** | TTP223 | `D8` | Entrada digital (GPIO RISING para despertar). |
+| **Botón Táctil** | TTP223 | `D8` | Entrada digital (Desactivada por hardware/firmware debido a ruido). |
 | **Motor Vibración** | Driver MOSFET | `D9` | Salida digital (PWM para regular intensidad). |
 | **Magnetómetro** | LIS3MDL (Brújula) | `D4` (SDA) / `D5` (SCL) | Bus I2C personalizado. |
 | **IMU (Integrado)** | LSM6DS3TR-C | Interno (`P0.11`) | Interrupción INT1 mapeada para Wake-on-Motion. |
 
-### ⚡ Gestión de Energía y Despertar Dual (`Rise-to-Wake`)
-En la versión v1.2, se implementan **dos fuentes de interrupción para despertar del modo `DEEP_SLEEP`**:
-1.  **Toque Físico:** Pulsar el botón capacitivo (`D8`).
-2.  **Giro/Levantamiento de Muñeca (`Rise-to-Wake`):** Sensor de movimiento IMU LSM6DS3.
+### ⚡ Gestión de Energía y Despertar mediante Levantar Muñeca (`Rise-to-Wake`)
+En la versión v1.2, el reloj se despierta del modo `DEEP_SLEEP` únicamente a través de la siguiente fuente de movimiento:
+1.  **Giro/Levantamiento de Muñeca (`Rise-to-Wake`):** Sensor de movimiento IMU LSM6DS3.
+    *   *Nota sobre el botón táctil:* El botón capacitivo (`D8`) está **desconectado e inactivo** en el firmware debido a interferencias de ruido dieléctrico en la PCB física.
     *   *Trade-off de batería:* El giroscopio y el micrófono interno PDM se apagan por completo. El acelerómetro se mantiene encendido en modo de ultra bajo consumo a **26 Hz** para detectar el movimiento de giro. Esto eleva el consumo en reposo de ~8µA a ~30–35µA, reduciendo la autonomía calculada con una batería de 140mAh de **38 días a 32 días** en espera (un precio insignificante para esta funcionalidad).
     *   *Calibración Inteligente:* El reloj incluye un sistema de calibración adaptativa. Cuando entra en modo calibración mediante la app BLE, pide al usuario hacer 5 levantamientos de muñeca seguidos. Guarda el umbral ideal (con un 80% de margen de seguridad) en la memoria Flash persistente del nRF52840 para evitar falsos positivos.
+
+### 🛡️ Salvaguarda Contra Notificaciones Accidentales (Flujo en Dos Fases)
+El sistema ha sido diseñado específicamente para que no se puedan enviar notificaciones accidentales mientras el reloj está en un bolso o mochila o durante movimientos corporales bruscos:
+1.  **Fase 1: Despertar (Acelerómetro).** Cuando el reloj está en reposo profundo (`DEEP_SLEEP`), el giroscopio está **totalmente apagado**. El acelerómetro de ultra bajo consumo solo vigila el levantamiento de muñeca. Un movimiento fuerte o levantamiento despierta el reloj al modo `CLOCK` para ver la hora.
+2.  **Fase 2: Detección de Gestos (Giroscopio).** El giroscopio solo se enciende *después* de que el reloj ha despertado. Una vez en modo `CLOCK`, el motor de gestos analiza la velocidad angular en busca de un **Doble Giro de Muñeca** rápido (*Double Flick*) dentro de una ventana temporal ajustable (de 400 a 1200 ms). Si el movimiento que despertó al reloj no es seguido inmediatamente por este doble giro coordinado, el reloj vuelve a dormirse tras unos segundos sin enviar ningún toque.
 
 ### 🛠️ Compilación e Instalación del Firmware
 
@@ -82,7 +101,7 @@ Para no agotar la batería del teléfono móvil enviando coordenadas a Supabase 
 | **REMOTE** | Distancia > 50 km | **5 a 10 minutos** | Distancia muy larga (evita el consumo innecesario) |
 
 > [!TIP]
-> Si el usuario activa el modo Radar en su reloj presionando brevemente el botón capacitivo, el firmware notifica al teléfono mediante BLE (`RADAR_ACTIVE_CHAR`), lo que fuerza instantáneamente al Foreground Service a pasar al intervalo GPS de 3 segundos para que los datos en pantalla y el anillo LED apunten a la pareja en tiempo real y sin retraso.
+> Si el usuario activa el modo Radar en su reloj realizando un giro simple de muñeca (cuando está despierto), el firmware notifica al teléfono mediante BLE (`RADAR_ACTIVE_CHAR`), lo que fuerza instantáneamente al Foreground Service a pasar al intervalo GPS de 3 segundos para que los datos en pantalla y el anillo LED apunten a la pareja en tiempo real y sin retraso.
 
 ### 🔑 Configuración del Entorno de Desarrollo (Flutter)
 Requisitos previos: tener instalado el SDK de Flutter y las herramientas de Android.
@@ -175,17 +194,22 @@ En la versión física actual de la PCB, se descubrió un problema de impedancia
 
 ## 📊 Tabla de Referencia de Comportamientos del Reloj
 
-### Transiciones de Estados y Gestos del Botón (`TTP223`)
+### Transiciones de Estados y Gestos (Giro de Muñeca)
 
-| Estado Actual | Un Tap | Doble Tap | Presión Corta (1.5s) | Presión Larga (3s) |
+> [!WARNING]
+> El botón táctil capacitivo físico (`TTP223` / Pin `D8`) está **desactivado por firmware** debido a fallas de diseño de hardware (ruido dieléctrico que bloquea el pin en HIGH). En su lugar, el reloj utiliza el giroscopio para detectar giros de muñeca rápidos (*Wrist Flicks*) y el acelerómetro para el despertado automático.
+
+#### Mapeo de Acciones y Modos
+
+| Estado Actual | Levantar Muñeca (Acel.) | Giro Simple (1 Giro) | Giro Doble (2 Giros rápidos) | Inactividad (Timeout) |
 | :--- | :--- | :--- | :--- | :--- |
-| **`DEEP_SLEEP`** | Despierta ➔ `WAKING_UP` | — | — | — |
-| **`CLOCK_CONNECTED`** | Resetea temporizador | Envía toque (háptica TX) | Cambia a `RADAR_MODE` | Fuerza entrada a `DEEP_SLEEP` |
-| **`CLOCK_DISCONNECTED`** | Resetea temporizador | Ignorado (sin BLE) | Muestra error (LED rojo parpadeo) | Fuerza entrada a `DEEP_SLEEP` |
-| **`RADAR_MODE`** | Resetea temporizador | Cambia a `DISTANCE_MODE` | Regresa a modo Reloj | Fuerza entrada a `DEEP_SLEEP` |
-| **`DISTANCE_MODE`** | Resetea temporizador | Cambia a `RADAR_MODE` | Regresa a modo Reloj | Fuerza entrada a `DEEP_SLEEP` |
-| **`HAPTIC_RX`** | Cancela vibración | — | — | — |
-| **`CALIBRATION_MODE`** | Cancela calibración | — | — | — |
+| **`DEEP_SLEEP`** | Despierta ➔ `CLOCK` | — | — | *(Apagado permanente)* |
+| **`CLOCK_CONNECTED`** | *(Ya despierto)* | Cambia a `RADAR_MODE` | Envía toque (háptica TX) | Se apaga ➔ `DEEP_SLEEP` (5s) |
+| **`CLOCK_DISCONNECTED`** | *(Ya despierto)* | Muestra error (LED rojo) | Ignorado (sin BLE) | Se apaga ➔ `DEEP_SLEEP` (5s) |
+| **`RADAR_MODE`** | *(Ya despierto)* | Regresa a Reloj | Cambia a `DISTANCE_MODE` | Regresa a Reloj (30s) |
+| **`DISTANCE_MODE`** | *(Ya despierto)* | Regresa a Reloj | Cambia a `RADAR_MODE` | Regresa a Reloj (30s) |
+| **`HAPTIC_RX`** | *(Ya despierto)* | Cancela vibración y vuelve | — | Regresa a Reloj (3s) |
+| **`CALIBRATION_MODE`**| *(Ya despierto)* | Cancela calibración | — | Regresa a Reloj al terminar |
 
 ### Patrones de Vibración Háptica
 

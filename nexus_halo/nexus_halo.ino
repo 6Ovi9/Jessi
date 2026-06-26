@@ -357,6 +357,7 @@ void loop() {
   // ========================================================================
 
   gesture_detector.setThreshold(runtime_config.getConfig().gyroThreshold);
+  gesture_detector.setDoubleFlickWindow(runtime_config.getConfig().doubleFlickWindow);
   gesture_detector.update(now_ms);
   compass.update();
   ble_handler.update();

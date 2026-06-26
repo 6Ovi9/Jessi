@@ -43,6 +43,9 @@ struct RuntimeConfig {
 
   // Gyroscope wrist-flick threshold (dps)
   uint16_t gyroThreshold;
+
+  // Gyroscope double-flick timing window (ms)
+  uint16_t doubleFlickWindow;
 };
 
 class RuntimeConfigManager {

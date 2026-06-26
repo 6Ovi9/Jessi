@@ -322,12 +322,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   (c) => c.copyWith(gyroThreshold: value.round())),
               activeColor: const Color(0xFF00CC88),
             ),
+            _buildSliderTile(
+              'Ventana de doble giro',
+              '${_config.doubleFlickWindowMs} ms',
+              _config.doubleFlickWindowMs.toDouble(),
+              400,
+              1200,
+              (value) => _updateConfig(
+                  (c) => c.copyWith(doubleFlickWindowMs: value.round())),
+              activeColor: const Color(0xFF00FFCC),
+            ),
             Padding(
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: Text(
-                'Umbral de velocidad en grados por segundo (dps). Menor valor = más sensible.\n'
-                'Recomendado: 260 dps. Si se activa solo al mover el brazo: subir. Si no detecta: bajar.',
+                'Sensibilidad: Umbral en dps (menor = más sensible). Recomendado: 260 dps.\n'
+                'Ventana de doble giro: Tiempo límite entre los dos giros rápidos para que cuente como doble flick. Recomendado: 800 ms.',
                 style: TextStyle(
                   fontSize: 11,
                   color: Colors.white.withValues(alpha: 0.25),

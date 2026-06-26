@@ -36,7 +36,7 @@ firmware/
 |---|---|---|---|
 | Microcontrolador | Seeed XIAO nRF52840 Sense | — | BLE 5.0 + LSM6DS3 IMU |
 | LEDs | 12× SK6812-MINI-E (RGB+W) | D7 (datos) | NeoPixel |
-| Botón táctil | TTP223 | D8 | GPIO HIGH/LOW |
+| Botón táctil | TTP223 | D8 | Desactivado (Hardware/Firmware) |
 | Motor vibración | Motor + MOSFET | D9 | PWM |
 | Magnetómetro | LIS3MDL | D4/D5 (I2C) | I2C custom |
 | MOSFET LEDs | MOSFET gate | D10 | GPIO HIGH/LOW |
@@ -163,31 +163,23 @@ El usuario puede calibrar el threshold de motion-detection desde la app:
 
 ---
 
-## ⚠️ CRÍTICO — Interrupt Handlers (v1.2)
+## ⚠️ CRÍTICO — Interrupt Handlers (v1.2+)
 
-Dos interrupciones despiertan el reloj desde deep sleep:
+En reposo profundo (*Deep Sleep*), solo se utiliza la interrupción del acelerómetro para despertar al microcontrolador:
 
-### 1. Button Tap (D8)
-```cpp
-void onButtonWakeup() {
-  last_wake_source = WAKE_SOURCE_TAP;
-}
-```
-- **Pin**: D8 (TTP223)
-- **Evento**: RISING edge
-- **Efecto**: Despierta reloj, entra CLOCK mode
-
-### 2. Motion Detection (INT1) — NUEVO v1.2
+### 1. Motion Detection (INT1) — Acelerómetro LSM6DS3
 ```cpp
 void onMotionWakeup() {
   last_wake_source = WAKE_SOURCE_MOTION;
 }
 ```
-- **Pin**: INT1 (P0.11, from LSM6DS3)
-- **Evento**: RISING edge (aceleración > threshold)
-- **Requisito**: `IMU_WAKE_ENABLED == 1`
-- **Efecto**: Despierta reloj, entra CLOCK mode
-- **Threshold**: Auto-calibrated, guardado en flash
+- **Pin**: INT1 (P0.11, desde LSM6DS3)
+- **Evento**: RISING edge (cuando la aceleración vertical supera el umbral configurado)
+- **Efecto**: Despierta el reloj de inmediato y entra en modo `CLOCK`.
+- **Umbral**: Calibrado dinámicamente desde la app móvil y guardado en la memoria Flash.
+
+### 2. Botón Capacitivo (D8) — DESACTIVADO
+- **Estado**: **Inactivo / Desconectado por firmware** debido a fallas físicas de diseño en la PCB (ruido eléctrico dieléctrico). Las líneas de código e interrupciones asociadas a `PIN_BUTTON_TOUCH` están comentadas en `setup()` para evitar interferencias. Todo el control se realiza mediante giros de muñeca (*Wrist Flicks*) usando el giroscopio una vez despierto el reloj.
 
 ---
 
@@ -275,15 +267,14 @@ Lee `COMPILATION_VALIDATION.md` para una checklist de 11 ítems antes de compila
 4. **El reloj debe**:
    - Encender el anillo LED (color azul = sin BLE)
    - Mostrar la hora (3 agujas en LEDs)
-   - Responder a toques en botón D8 (wake de deep sleep)
-   - Responder a movimiento (INT1) si está cerca (requiere calibración)
+   - Responder a movimiento de levantamiento de muñeca (INT1) para despertar de deep sleep.
+   - Responder a gestos de giro de muñeca (flicks) una vez esté despierto.
 
 5. **Para calibrar rise-to-wake**:
-   - Desde app: Envía BLE comando calibration START
-   - O: Toca botón largo para entrar calibration mode (manual, no implementado aquí)
-   - Realiza 5 gestos de "levanta la muñeca"
-   - App mostrará progreso (1/5 → 5/5)
-   - Reloj guardará threshold en flash
+   - Desde la app: Envía el comando BLE para iniciar la calibración.
+   - Realiza 5 gestos de "levanta la muñeca".
+   - La app mostrará el progreso (1/5 → 5/5).
+   - El reloj calculará y guardará el umbral en la memoria flash.
 
 ---
 
@@ -335,7 +326,7 @@ D4  → I2C SDA (LIS3MDL)
 D5  → I2C SCL (LIS3MDL)
 D6  → (disponible)
 D7  → SK6812 LED data (NeoPixel)
-D8  → TTP223 button (entrada)
+D8  → TTP223 button (Desactivado por hardware/firmware)
 D9  → Motor vibración (PWM)
 D10 → LED power MOSFET (HIGH = on)
 ```

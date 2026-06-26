@@ -16,6 +16,7 @@ GestureDetector::GestureDetector()
     waiting_for_second_flick(false),
     flick_reset(true),
     gyro_threshold(GESTURE_GYRO_THS_DEFAULT),
+    double_flick_window(GESTURE_DOUBLE_FLICK_WINDOW_DEFAULT),
     detected_gesture(GESTURE_NONE),
     gesture_reported(true)
 {
@@ -56,7 +57,7 @@ void GestureDetector::update(uint32_t now_ms) {
       if (waiting_for_second_flick) {
         // Double flick!
         uint32_t gap = now_ms - first_flick_ms;
-        if (gap <= 800) {
+        if (gap <= double_flick_window) {
           detected_gesture = GESTURE_TAP_DOUBLE;
           gesture_reported = false;
           waiting_for_second_flick = false;
@@ -79,8 +80,8 @@ void GestureDetector::update(uint32_t now_ms) {
   }
   
   // Check double-flick timeout: if we were waiting for a second flick
-  // but it didn't come within 500ms, report a single flick (short press)!
-  if (waiting_for_second_flick && (now_ms - first_flick_ms) > 500) {
+  // but it didn't come within the window, report a single flick (short press)!
+  if (waiting_for_second_flick && (now_ms - first_flick_ms) > double_flick_window) {
     detected_gesture = GESTURE_PRESS_SHORT;
     gesture_reported = false;
     waiting_for_second_flick = false;

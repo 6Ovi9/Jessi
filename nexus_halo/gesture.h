@@ -34,6 +34,9 @@ public:
   // Set gyro threshold dynamically
   void setThreshold(uint16_t ths) { gyro_threshold = ths; }
   
+  // Set double-flick timing window dynamically
+  void setDoubleFlickWindow(uint16_t ms) { double_flick_window = ms; }
+  
   // Raw button state (kept for backward compatibility)
   bool isButtonPressed() const { return button_pressed; }
   
@@ -65,6 +68,7 @@ private:
   bool waiting_for_second_flick;
   bool flick_reset;
   uint16_t gyro_threshold;
+  uint16_t double_flick_window;
   
   // Gesture result
   GestureType detected_gesture;
