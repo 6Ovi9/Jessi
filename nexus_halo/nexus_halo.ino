@@ -651,6 +651,26 @@ void loop() {
   }
   compass.update(ax, ay, az);
 
+  // ========================================================================
+  // IMU STREAMING (10 Hz)
+  // ========================================================================
+  if (ble_handler.isIMUStreamRequested() && lsm6ds3_connected) {
+    static uint32_t last_imu_stream_ms = 0;
+    if (now_ms - last_imu_stream_ms >= 100) {
+      last_imu_stream_ms = now_ms;
+      float gx = lsm6ds3.readFloatGyroX();
+      float gy = lsm6ds3.readFloatGyroY();
+      float gz = lsm6ds3.readFloatGyroZ();
+      
+      float mg_f = sqrt(ax*ax + ay*ay + az*az) * 1000.0f;
+      float dps_f = sqrt(gx*gx + gy*gy + gz*gz);
+      
+      uint16_t mg = (uint16_t)(mg_f > 65535.0f ? 65535 : mg_f);
+      uint16_t dps = (uint16_t)(dps_f > 65535.0f ? 65535 : dps_f); // magnitude, always ≥ 0
+      ble_handler.notifyIMUStream(mg, dps);
+    }
+  }
+
   // Imprimir lecturas de la brújula periódicamente por serial para diagnóstico
   // (Removed debug block to clear console spam)
 

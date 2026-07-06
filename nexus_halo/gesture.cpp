@@ -74,10 +74,10 @@ void GestureDetector::update(uint32_t now_ms) {
               Serial.println("[GESTURE] GESTURE_TAP_TRIPLE (Triple Flick)");
             }
             flick_count = 0;
+          }
         }
       }
     }
-    
     // Reset quiet state flag if the gyro magnitude falls below quiet threshold
     if (gyro_mag < fmax(gyro_threshold * 0.8f, 50.0f)) {
       flick_reset = true;

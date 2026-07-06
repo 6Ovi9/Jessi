@@ -79,6 +79,7 @@ class _WakeCalibrationScreenState extends State<WakeCalibrationScreen>
     // Hook calibration progress from BLE
     final ble = context.read<BleService>();
     ble.onCalibrationProgress = _onCalibProgress;
+    ble.startImuStream();
   }
 
   @override
@@ -88,6 +89,7 @@ class _WakeCalibrationScreenState extends State<WakeCalibrationScreen>
     _detectedTimer?.cancel();
     final ble = context.read<BleService>();
     ble.onCalibrationProgress = null;
+    ble.stopImuStream();
     super.dispose();
   }
 
@@ -284,7 +286,66 @@ class _WakeCalibrationScreenState extends State<WakeCalibrationScreen>
             totalDetections: _totalDetections,
             onTap: null,
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 16),
+          
+          // Live IMU Data
+          Center(
+            child: StreamBuilder<Map<String, int>>(
+              stream: context.read<BleService>().imuStream,
+              builder: (context, snapshot) {
+                final mg = snapshot.data?['mg'] ?? 0;
+                final thresholdMg = _thresholdToMg(_threshold).toInt();
+                final Color barColor = mg >= thresholdMg ? const Color(0xFF00AA66) : const Color(0xFF8866FF);
+
+                return Column(
+                  children: [
+                    Text(
+                      'Aceleración actual: $mg mg',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Stack(
+                        children: [
+                          FractionallySizedBox(
+                            widthFactor: (mg / 2500).clamp(0.0, 1.0),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: barColor,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                          ),
+                          // Threshold marker
+                          Positioned(
+                            left: MediaQuery.of(context).size.width * 0.8 * (thresholdMg / 2500).clamp(0.0, 1.0), // rough estimate for marker
+                            top: 0,
+                            bottom: 0,
+                            child: Container(
+                              width: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
 
           // Threshold slider header
           Row(

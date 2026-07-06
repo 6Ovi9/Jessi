@@ -237,17 +237,12 @@ void LEDController::showClock(bool connected) {
   // ---- Hours: one LED per hour (LED 0 = 12:xx, LED 6 = 6:xx) ----
   int hour_led = current_hour; // 0-11 maps directly to LED 0-11
 
-  // ---- Minutes: two adjacent LEDs at equal brightness ----
-  // 12 LEDs cover 60 min → each LED = 5 min.
-  // Lighting the current 5-min block AND the next gives a rough
-  // "you're between X:05 and X:10" reading without sub-LED interpolation.
-  int minute_led      = (current_minute * 12) / 60;
-  int minute_led_next = (minute_led + 1) % LED_COUNT;
+  // ---- Minutes: single LED at the nearest 5-minute tick ----
+  // 12 LEDs cover 60 min -> each LED = 5 min.
+  int minute_led = (current_minute * 12) / 60;
 
   // ---- Seconds: snap to the LED for the current 5-second tick ----
-  // 12 LEDs × 5 s = 60 s. No crossfade — at normal brightness the
-  // fractional interpolation was visually distracting and added no
-  // useful info at this scale. The hand simply steps every 5 seconds.
+  // 12 LEDs x 5 s = 60 s.
   uint32_t elapsed_ms = millis() - clock_last_update_ms + current_millis;
   uint32_t total_s    = (uint32_t)current_second + elapsed_ms / 1000;
   int second_led      = (int)((total_s / 5) % LED_COUNT);
@@ -267,10 +262,9 @@ void LEDController::showClock(bool connected) {
     color_second = connected ? COLOR_SECONDS_CONNECTED : COLOR_SECONDS_DISC;
   }
 
-  addLEDBrightness(hour_led,       color_hour,   base_brightness);
-  addLEDBrightness(minute_led,     color_minute, base_brightness);
-  addLEDBrightness(minute_led_next,color_minute, base_brightness);
-  addLEDBrightness(second_led,     color_second, base_brightness);
+  addLEDBrightness(hour_led,   color_hour,   base_brightness);
+  addLEDBrightness(minute_led, color_minute, base_brightness);
+  addLEDBrightness(second_led, color_second, base_brightness);
 
   show();
 }

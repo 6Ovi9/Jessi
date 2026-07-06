@@ -66,6 +66,9 @@ class BleService extends ChangeNotifier {
   static final Uuid _timeSyncCharUuid =
       Uuid.parse('4a5c2a2b-5f2d-4e1b-822c-4a2d87b4c85b');
 
+  static final Uuid _imuStreamCharUuid =
+      Uuid.parse('4a5c2a62-5f2d-4e1b-822c-4a2d87b4c85b');
+
   // ── Estado ──────────────────────────────────────────────────────────────
 
   /// Estado actual de la conexión BLE
@@ -96,11 +99,26 @@ class BleService extends ChangeNotifier {
 
   StreamSubscription<ConnectionStateUpdate>? _connectionSubscription;
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
+  
+  final _hapticTxController = StreamController<String>.broadcast();
+  Stream<String> get hapticTxStream => _hapticTxController.stream;
+
+  final _calibStatusController = StreamController<Map<String, int>>.broadcast();
+  Stream<Map<String, int>> get calibStatusStream => _calibStatusController.stream;
+
+  final _imuStreamController = StreamController<Map<String, int>>.broadcast();
+  Stream<Map<String, int>> get imuStream => _imuStreamController.stream;
+
+  BleService() {
+    // Constructor logic
+  }
+
   StreamSubscription<List<int>>? _hapticTxSubscription;
   StreamSubscription<List<int>>? _batterySubscription;
   StreamSubscription<List<int>>? _calibStatusSubscription;
   StreamSubscription<List<int>>? _calibThresholdSubscription;
   StreamSubscription<List<int>>? _radarModeSubscription;
+  StreamSubscription<List<int>>? _imuStreamSubscription;
 
   Timer? _scanTimer;
   Timer? _retryTimer;
@@ -146,7 +164,12 @@ class BleService extends ChangeNotifier {
     _hapticTxSubscription?.cancel();
     _batterySubscription?.cancel();
     _calibStatusSubscription?.cancel();
+    _calibThresholdSubscription?.cancel();
     _radarModeSubscription?.cancel();
+    _imuStreamSubscription?.cancel();
+    _hapticTxController.close();
+    _calibStatusController.close();
+    _imuStreamController.close();
     super.dispose();
   }
 
@@ -375,6 +398,7 @@ class BleService extends ChangeNotifier {
     _calibStatusSubscription?.cancel();
     _calibThresholdSubscription?.cancel();
     _radarModeSubscription?.cancel();
+    _imuStreamSubscription?.cancel();
     _connectionState = BleConnectionState.disconnected;
 
     notifyListeners();
@@ -406,6 +430,8 @@ class BleService extends ChangeNotifier {
     _subscribeToCalibThreshold(deviceId);
     await Future.delayed(const Duration(milliseconds: 150));
     _subscribeToRadarMode(deviceId);
+    await Future.delayed(const Duration(milliseconds: 150));
+    _subscribeToImuStream(deviceId);
 
     // Leer la batería inicial directamente
     final batteryChar = QualifiedCharacteristic(
@@ -438,6 +464,7 @@ class BleService extends ChangeNotifier {
     _calibStatusSubscription?.cancel();
     _calibThresholdSubscription?.cancel();
     _radarModeSubscription?.cancel();
+    _imuStreamSubscription?.cancel();
     _radarModeActive = false;
     _batteryPercent = -1;
     _calibThreshold = null;
@@ -460,6 +487,7 @@ class BleService extends ChangeNotifier {
         if (data.isNotEmpty && data[0] == 0x01) {
           print('[BLE] Haptic TX received! User tapped the watch.');
           onHapticTxReceived?.call();
+          _hapticTxController.add('tapped');
         }
       },
       onError: (error) {
@@ -751,6 +779,27 @@ class BleService extends ChangeNotifier {
 
   // ── Calibración ────────────────────────────────────────────────────────
 
+  Future<void> sendCalibCmd(int cmd) async {
+    if (_connectedDeviceId == null) return;
+    try {
+      final characteristic = QualifiedCharacteristic(
+        serviceId: _serviceUuid,
+        characteristicId: _calibCmdCharUuid,
+        deviceId: _connectedDeviceId!,
+      );
+      await _ble.writeCharacteristicWithResponse(characteristic, value: [cmd]);
+      print('[BLE] Calib CMD sent: 0x${cmd.toRadixString(16)}');
+    } catch (e) {
+      print('[BLE] Error sending Calib CMD: $e');
+    }
+  }
+
+  /// Iniciar stream IMU
+  Future<void> startImuStream() => sendCalibCmd(0x05);
+
+  /// Detener stream IMU
+  Future<void> stopImuStream() => sendCalibCmd(0x06);
+
   /// Iniciar calibración de wake-on-motion
   Future<void> startCalibration() async {
     if (_connectionState != BleConnectionState.connected ||
@@ -758,22 +807,8 @@ class BleService extends ChangeNotifier {
       return;
     }
 
-    final characteristic = QualifiedCharacteristic(
-      serviceId: _serviceUuid,
-      characteristicId: _calibCmdCharUuid,
-      deviceId: _connectedDeviceId!,
-    );
-
-    try {
-      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
-        characteristic,
-        value: [0x01], // START
-      ));
-
-      print('[BLE] Calibration START sent');
-    } catch (e) {
-      print('[BLE] Error sending Calibration START: $e');
-    }
+    sendCalibCmd(0x01);
+    print('[BLE] Calibration START sent');
   }
 
   /// Cancelar calibración en curso
@@ -783,23 +818,9 @@ class BleService extends ChangeNotifier {
       return;
     }
 
-    final characteristic = QualifiedCharacteristic(
-      serviceId: _serviceUuid,
-      characteristicId: _calibCmdCharUuid,
-      deviceId: _connectedDeviceId!,
-    );
-
-    try {
-      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
-        characteristic,
-        value: [0x03], // CANCEL
-      ));
-
-      _calibStatusSubscription?.cancel();
-      print('[BLE] Calibration CANCEL sent');
-    } catch (e) {
-      print('[BLE] Error sending Calibration CANCEL: $e');
-    }
+    sendCalibCmd(0x03);
+    _calibStatusSubscription?.cancel();
+    print('[BLE] Calibration CANCEL sent');
   }
 
   /// Iniciar calibración de la brújula (magnetómetro)
@@ -809,22 +830,8 @@ class BleService extends ChangeNotifier {
       return;
     }
 
-    final characteristic = QualifiedCharacteristic(
-      serviceId: _serviceUuid,
-      characteristicId: _calibCmdCharUuid,
-      deviceId: _connectedDeviceId!,
-    );
-
-    try {
-      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
-        characteristic,
-        value: [0x04], // 0x04 = START COMPASS CALIBRATION
-      ));
-
-      print('[BLE] Compass calibration START sent');
-    } catch (e) {
-      print('[BLE] Error sending Compass calibration START: $e');
-    }
+    sendCalibCmd(0x04);
+    print('[BLE] Compass calibration START sent');
   }
 
   /// Escribir umbral de wake-on-motion
@@ -848,7 +855,7 @@ class BleService extends ChangeNotifier {
 
       print('[BLE] Wake threshold written: 0x${threshold.toRadixString(16)}');
     } catch (e) {
-      print('[BLE] Error writing Wake threshold: $e');
+      print('[BLE] Error parsing calib threshold: $e');
     }
   }
 
@@ -895,9 +902,44 @@ class BleService extends ChangeNotifier {
         }
       },
       onError: (error) {
-        print('[BLE] Calibration threshold error: $error');
+      print('[BLE] Calibration threshold error: $error');
       },
     );
+  }
+
+  void _subscribeToImuStream(String deviceId) {
+    try {
+      final characteristic = QualifiedCharacteristic(
+        serviceId: _serviceUuid,
+        characteristicId: _imuStreamCharUuid,
+        deviceId: deviceId,
+      );
+
+      _imuStreamSubscription =
+          _ble.subscribeToCharacteristic(characteristic).listen(
+        (data) {
+          if (data.length == 4) {
+            int mg = data[0] | (data[1] << 8);
+            int dps = data[2] | (data[3] << 8);
+            
+            // Si el MSB indica negativo para dps, hacemos sign extension
+            if ((dps & 0x8000) != 0) {
+              dps = dps - 0x10000;
+            }
+
+            _imuStreamController.add({
+              'mg': mg,
+              'dps': dps.abs(), // Para calibrar, la magnitud es suficiente
+            });
+          }
+        },
+        onError: (e) {
+          print('[BLE] Error in IMU stream subscription: $e');
+        },
+      );
+    } catch (e) {
+      print('[BLE] Error subscribing to IMU stream: $e');
+    }
   }
 }
 

@@ -60,9 +60,12 @@ public:
   uint32_t getLastDistance() const { return last_distance; }
   bool getRadarModeRequested() const { return radar_mode_requested; }
   
+  bool isIMUStreamRequested() const { return imu_stream_requested; }
+  
   // Calibration support
   void notifyCalibStatus(uint8_t samples_done, uint8_t total_samples);
   void notifyCalibThreshold(uint8_t threshold);
+  void notifyIMUStream(uint16_t mg, uint16_t dps); // dps is a gyro magnitude, always ≥ 0
   uint8_t getCalibThreshold() const { return calib_threshold; }
   
   // Config access (returns last JSON string received from app)
@@ -85,6 +88,7 @@ private:
   uint32_t conn_timestamp;
   uint16_t active_conn_handle;
   bool conn_param_requested;
+  bool imu_stream_requested;
 
   // BLE state
   bool ble_connected;
@@ -105,7 +109,8 @@ private:
   BLECharacteristic calib_status_char;
   BLECharacteristic calib_threshold_char;
   BLECharacteristic ota_char;
-  BLECharacteristic time_sync_char;  // Write-only: app sends Unix timestamp uint32 LE
+  BLECharacteristic time_sync_char;  // Write-only: app sends uint32 Unix timestamp + int32 tz offset, little-endian
+  BLECharacteristic imu_stream_char;
   
   // Config JSON buffer
   char config_json_buf[256];

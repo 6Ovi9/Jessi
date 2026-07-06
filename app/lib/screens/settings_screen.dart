@@ -50,24 +50,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final repo = context.read<PartnerRepository>();
     final bleService = context.read<BleService>();
 
-    // Guardar en Supabase
-    await repo.saveConfig(_config);
+    try {
+      // Guardar en Supabase
+      await repo.saveConfig(_config);
 
-    // Enviar al reloj por BLE
-    await bleService.writeConfig(_config);
+      // Enviar al reloj por BLE
+      await bleService.writeConfig(_config);
 
-    if (!mounted) return;
-    setState(() => _hasChanges = false);
-
-    if (mounted) {
+      if (!mounted) return;
+      setState(() => _hasChanges = false);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Configuración guardada'),
+          backgroundColor: Color(0xFF1A2A3A),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Configuración guardada'),
-          backgroundColor: const Color(0xFF1A2A3A),
+          content: Text('Error al guardar: $e'),
+          backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
         ),
       );
     }
@@ -280,7 +286,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               '${(_config.wakeThreshold * 62.5).toInt()} mg',
               _config.wakeThreshold.toDouble(),
               1,
-              32,
+              63,
               (value) => _updateConfig(
                   (c) => c.copyWith(wakeThreshold: value.round())),
               activeColor: const Color(0xFF8866FF),
@@ -334,7 +340,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               '${_config.gyroThreshold} dps',
               _config.gyroThreshold.toDouble(),
               100,
-              500,
+              2000,
               (value) => _updateConfig(
                   (c) => c.copyWith(gyroThreshold: value.round())),
               activeColor: const Color(0xFF00CC88),

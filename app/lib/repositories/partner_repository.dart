@@ -156,6 +156,7 @@ class PartnerRepository extends ChangeNotifier {
       print('[REPO] Config saved');
     } catch (e) {
       print('[REPO] Error saving config: $e');
+      rethrow;
     } finally {
       if (_sessionId == currentSessionId) {
         _pendingRequests--;

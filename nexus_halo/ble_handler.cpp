@@ -24,6 +24,9 @@ uint8_t const BLE_OTA_UUID_128[16]             = { 0x5B, 0xC8, 0xB4, 0x87, 0x2D,
 uint8_t const BLE_TIME_SYNC_UUID_128[16] = {
   0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x2B, 0x2A, 0x5C, 0x4A
 };
+uint8_t const BLE_IMU_STREAM_UUID_128[16] = {
+  0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x62, 0x2A, 0x5C, 0x4A
+};
 
 BLEHandler* BLEHandler::instance = nullptr;
 
@@ -43,6 +46,7 @@ BLEHandler::BLEHandler()
     calib_threshold_char(BLE_CALIB_THRESHOLD_UUID_128),
     ota_char(BLE_OTA_UUID_128),
     time_sync_char(BLE_TIME_SYNC_UUID_128),
+    imu_stream_char(BLE_IMU_STREAM_UUID_128),
     last_bearing(0),
     last_distance(0),
     radar_mode_requested(false),
@@ -57,7 +61,8 @@ BLEHandler::BLEHandler()
     callback_compass_calib_start(nullptr),
     callback_threshold_write(nullptr),
     callback_ota_request(nullptr),
-    callback_time_sync(nullptr)
+    callback_time_sync(nullptr),
+    imu_stream_requested(false)
 {
   instance = this;
   memset(config_json_buf, 0, sizeof(config_json_buf));
@@ -160,6 +165,12 @@ void BLEHandler::begin() {
   time_sync_char.setWriteCallback(write_callback);
   time_sync_char.begin();
 
+  // IMU Stream: read, notify (mg and dps, 4 bytes total)
+  imu_stream_char.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
+  imu_stream_char.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  imu_stream_char.setFixedLen(4);
+  imu_stream_char.begin();
+
   // Initialize values
   float zero_f = 0.0f;
   bearing_char.write(&zero_f, 4);
@@ -188,8 +199,8 @@ void BLEHandler::update() {
     conn_param_requested = true;
     BLEConnection* conn = Bluefruit.Connection(active_conn_handle);
     if (conn) {
-      // 84 * 1.25ms = 105ms (multiple of 15ms). Args: min, max, latency, timeout
-      conn->requestConnectionParameter(84, 84, 0, 400); 
+      // 84 * 1.25ms = 105ms (multiple of 15ms). Args: interval, latency, timeout
+      conn->requestConnectionParameter(84, 0, 400); 
     }
   }
 }
@@ -231,6 +242,8 @@ void BLEHandler::_onConnect(uint16_t conn_handle) {
 
 void BLEHandler::_onDisconnect(uint16_t conn_handle, uint8_t reason) {
   ble_connected = false;
+  // Reset streaming flag so reconnect starts clean (BUG-1 fix)
+  imu_stream_requested = false;
 }
 
 void BLEHandler::_onWrite(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
@@ -276,6 +289,8 @@ void BLEHandler::_onWrite(uint16_t conn_handle, BLECharacteristic* chr, uint8_t*
     else if (cmd == 0x02 && callback_calib_end) callback_calib_end();
     else if (cmd == 0x03 && callback_calib_cancel) callback_calib_cancel();
     else if (cmd == 0x04 && callback_compass_calib_start) callback_compass_calib_start();
+    else if (cmd == 0x05) imu_stream_requested = true;
+    else if (cmd == 0x06) imu_stream_requested = false;
   }
   else if (chr == &calib_threshold_char) {
     calib_threshold = data[0];
@@ -297,6 +312,15 @@ void BLEHandler::notifyCalibStatus(uint8_t samples_done, uint8_t total_samples) 
   if (ble_connected) calib_status_char.notify(payload, 2);
 }
 
+void BLEHandler::notifyIMUStream(uint16_t mg, uint16_t dps) {
+  if (!ble_init_ok || !imu_stream_requested) return;
+  uint8_t payload[4] = {
+    (uint8_t)(mg & 0xFF), (uint8_t)((mg >> 8) & 0xFF),
+    (uint8_t)(dps & 0xFF), (uint8_t)((dps >> 8) & 0xFF)
+  };
+  imu_stream_char.write(payload, 4);
+  if (ble_connected) imu_stream_char.notify(payload, 4);
+}
 
 void BLEHandler::notifyCalibThreshold(uint8_t threshold) {
   if (!ble_init_ok) return;
