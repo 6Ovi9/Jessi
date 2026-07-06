@@ -1,5 +1,6 @@
 import 'dart:isolate';
-
+import 'dart:ui';
+import 'package:flutter/widgets.dart';
 
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
@@ -56,12 +57,12 @@ class ForegroundService {
   /// Muestra la notificación persistente y previene que Android
   /// destruya el proceso en Doze Mode.
   static Future<bool> start() async {
-    if (await FlutterForegroundTask.isRunningService) {
-      print('[FG] Service already running');
-      return true;
-    }
-
     try {
+      if (await FlutterForegroundTask.isRunningService) {
+        print('[FG] Service already running');
+        return true;
+      }
+
       final result = await FlutterForegroundTask.startService(
         notificationTitle: 'Nexus Halo activo',
         notificationText: 'Conectado y rastreando ubicación',
@@ -126,7 +127,9 @@ void _startCallback() {
 class _ForegroundTaskHandler extends TaskHandler {
   @override
   void onStart(DateTime timestamp, SendPort? sendPort) {
-    print('[FG] Task handler started at $timestamp');
+    WidgetsFlutterBinding.ensureInitialized();
+    DartPluginRegistrant.ensureInitialized();
+    print('[FG] Background Isolate started at $timestamp');
   }
 
   @override

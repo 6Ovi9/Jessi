@@ -282,7 +282,7 @@ class _WakeCalibrationScreenState extends State<WakeCalibrationScreen>
             isDetected: _isDetected,
             detectAnim: _detectAnim,
             totalDetections: _totalDetections,
-            onTap: connected ? _simulateDetection : null,
+            onTap: null,
           ),
           const SizedBox(height: 32),
 

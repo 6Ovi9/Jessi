@@ -33,3 +33,18 @@ db.lock
 
 # Flutter SDK folder in root
 /Flutter/
+
+# Antigravity Agents
+.agents/
+.gemini/
+
+# Arduino/C++ build outputs
+*.hex
+*.bin
+*.elf
+*.uf2
+nexus_halo/build/
+
+# Backend (Supabase/Docker)
+backend/.env
+backend/volumes/

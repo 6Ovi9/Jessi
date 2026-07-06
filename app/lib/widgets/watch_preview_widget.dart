@@ -53,7 +53,7 @@ class _WatchPreviewWidgetState extends State<WatchPreviewWidget> {
     super.initState();
     // Tick cada 100ms para animación suave de segundos
     _clockTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (mounted) {
+      if (mounted && widget.mode == WatchPreviewMode.clock) {
         setState(() {
           _now = DateTime.now();
         });
@@ -177,48 +177,50 @@ class _WatchPainter extends CustomPainter {
     final secondColor =
         isConnected ? config.secondsConnectedColor : config.secondsDiscColor;
 
+    final secondMain = secondPos.floor() % 12;
+    final secondNext = (secondMain + 1) % 12;
+    final secondFraction = secondPos - secondPos.floor();
+    final gamma = config.logarithmicBrightness ? 2.2 : 1.0;
+
     for (int i = 0; i < 12; i++) {
-      final angle = (i / 12) * 2 * pi - pi / 2; // 12h = arriba
+      final physicalIndex = _physicalIndex(i);
+      final angle = (physicalIndex / 12) * 2 * pi - pi / 2; // 12h = arriba
       final pos = Offset(
         center.dx + cos(angle) * ringRadius,
         center.dy + sin(angle) * ringRadius,
       );
 
-      // Determinar color y brillo de este LED
       Color ledColor = Colors.transparent;
       double ledBrightness = 0;
 
-      // ¿Es el LED de la hora?
-      if (i == hourPos.floor() % 12) {
-        ledColor = hourColor;
-        ledBrightness = brightness;
-      }
+      final isSecondMain = i == secondMain;
+      final isSecondNext = i == secondNext;
+      final isMinute = i == minutePos.floor() % 12;
+      final isHour = i == hourPos.floor() % 12;
 
-      // ¿Es el LED de los minutos? (prioridad sobre horas)
-      if (i == minutePos.floor() % 12) {
-        ledColor = minuteColor;
-        ledBrightness = brightness;
-      }
-
-      // ¿Es el LED de los segundos? (máxima prioridad — interpolación suave)
-      final secondMain = secondPos.floor() % 12;
-      final secondNext = (secondMain + 1) % 12;
-      final secondFraction = secondPos - secondPos.floor();
-
-      if (i == secondMain) {
-        final gamma = config.logarithmicBrightness ? 2.2 : 1.0;
+      double r = 0, g = 0, b = 0, maxB = 0;
+      if (isHour) { r += hourColor.r * 255 * 0.85; g += hourColor.g * 255 * 0.85; b += hourColor.b * 255 * 0.85; maxB = max(maxB, brightness * 0.85); }
+      if (isMinute) { r += minuteColor.r * 255; g += minuteColor.g * 255; b += minuteColor.b * 255; maxB = max(maxB, brightness); }
+      if (isSecondMain) {
         final frac = brightness * pow(1.0 - secondFraction, gamma);
-        if (frac > 0.02) {
-          ledColor = secondColor;
-          ledBrightness = frac.toDouble();
+        if (frac > 0.02 && brightness > 0) { 
+          r += secondColor.r * 255 * (frac / brightness); 
+          g += secondColor.g * 255 * (frac / brightness); 
+          b += secondColor.b * 255 * (frac / brightness); 
+          maxB = max(maxB, frac.toDouble()); 
         }
-      } else if (i == secondNext) {
-        final gamma = config.logarithmicBrightness ? 2.2 : 1.0;
+      } else if (isSecondNext) {
         final frac = brightness * pow(secondFraction, gamma);
-        if (frac > 0.02) {
-          ledColor = secondColor;
-          ledBrightness = frac.toDouble();
+        if (frac > 0.02 && brightness > 0) { 
+          r += secondColor.r * 255 * (frac / brightness); 
+          g += secondColor.g * 255 * (frac / brightness); 
+          b += secondColor.b * 255 * (frac / brightness); 
+          maxB = max(maxB, frac.toDouble()); 
         }
+      }
+      if (maxB > 0) { 
+        ledColor = Color.fromARGB(255, r.clamp(0,255).toInt(), g.clamp(0,255).toInt(), b.clamp(0,255).toInt()); 
+        ledBrightness = maxB; 
       }
 
       _drawLed(canvas, pos, ledRadius, ledColor, ledBrightness);
@@ -231,8 +233,10 @@ class _WatchPainter extends CustomPainter {
     const radarColor = Color(0xFFFFB900); // Ámbar cálido
 
     // Calcular LED index desde bearing
-    final ledIndex = (bearing / 360 * 12).round() % 12;
-    final ledFraction = (bearing / 360 * 12) - (bearing / 360 * 12).floor();
+    final safeBearing = bearing.isNaN ? 0.0 : bearing;
+    final exactIndex = safeBearing / 360 * 12;
+    final ledIndex = exactIndex.floor() % 12;
+    final ledFraction = exactIndex - exactIndex.floor();
 
     for (int i = 0; i < 12; i++) {
       final angle = (i / 12) * 2 * pi - pi / 2;
@@ -244,7 +248,7 @@ class _WatchPainter extends CustomPainter {
       double ledBrightness = 0;
 
       if (i == ledIndex) {
-        ledBrightness = brightness * (1.0 - ledFraction * 0.5);
+        ledBrightness = brightness * (1.0 - ledFraction);
       } else if (i == (ledIndex + 1) % 12) {
         ledBrightness = brightness * ledFraction;
       }
@@ -256,7 +260,6 @@ class _WatchPainter extends CustomPainter {
   void _drawDistanceMode(
       Canvas canvas, Offset center, double ringRadius, double ledRadius) {
     final brightness = config.brightnessPercent / 100.0;
-    const maxDistance = 500.0; // km
 
     // Calculamos la distancia en escala logarítmica para ser sensibles a cortas distancias.
     // Idéntico al firmware en C++
@@ -292,7 +295,8 @@ class _WatchPainter extends CustomPainter {
     ];
 
     for (int i = 0; i < 12; i++) {
-      final angle = (i / 12) * 2 * pi - pi / 2;
+      final physicalIndex = _physicalIndex(i);
+      final angle = (physicalIndex / 12) * 2 * pi - pi / 2;
       final pos = Offset(
         center.dx + cos(angle) * ringRadius,
         center.dy + sin(angle) * ringRadius,
@@ -301,9 +305,9 @@ class _WatchPainter extends CustomPainter {
       double ledBrightness = 0;
       final color = distanceColors[i];
 
-      if (i < ledsOn - 1) {
+      if (i < ledsOn) {
         ledBrightness = brightness;
-      } else if (i == ledsOn - 1) {
+      } else if (i == ledsOn) {
         ledBrightness = brightness * partialBrightness;
       }
 
@@ -328,10 +332,20 @@ class _WatchPainter extends CustomPainter {
     canvas.drawCircle(pos, radius, ledPaint);
 
     // Glow effect
+    final glowAlpha = (brightness * 0.4).clamp(0.0, 0.4);
     final glowPaint = Paint()
-      ..color = color.withValues(alpha: (brightness * 0.4).clamp(0.0, 0.4))
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 1.5);
-    canvas.drawCircle(pos, radius * 1.2, glowPaint);
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: glowAlpha),
+          color.withValues(alpha: 0.0),
+        ],
+        stops: const [0.2, 1.0],
+      ).createShader(Rect.fromCircle(center: pos, radius: radius * 1.5));
+    canvas.drawCircle(pos, radius * 1.5, glowPaint);
+  }
+
+  int _physicalIndex(int logicalIndex) {
+    return logicalIndex % 12;
   }
 
   void _drawHourMarks(Canvas canvas, Offset center, double radius) {
@@ -341,7 +355,8 @@ class _WatchPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     for (int i = 0; i < 12; i++) {
-      final angle = (i / 12) * 2 * pi - pi / 2;
+      final physicalIndex = _physicalIndex(i);
+      final angle = (physicalIndex / 12) * 2 * pi - pi / 2;
       final innerR = radius * 0.92;
       final outerR = radius * 0.97;
       final start = Offset(

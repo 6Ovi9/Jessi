@@ -168,7 +168,10 @@ CREATE TABLE IF NOT EXISTS watch_config (
   logarithmic_brightness    BOOLEAN DEFAULT TRUE, -- Curva gamma
 
   -- Vibración
-  haptic_pattern            TEXT DEFAULT 'default',
+  haptic_pattern            TEXT DEFAULT 'both',
+
+  -- Gyroscope wrist-flick timing window (ms)
+  double_flick_window_ms    INT DEFAULT 800,
 
   -- GPS Dynamic Polling (segundos)
   gps_interval_precision_s  INT DEFAULT 3,      -- <500m o RADAR activo
@@ -198,6 +201,13 @@ CREATE TRIGGER trg_watch_config_updated_at
 INSERT INTO watch_config (user_id)
 VALUES ('A'), ('B')
 ON CONFLICT (user_id) DO NOTHING;
+
+-- Compatibilidad con instalaciones existentes: asegurar columnas nuevas
+ALTER TABLE watch_config
+  ADD COLUMN IF NOT EXISTS double_flick_window_ms INT DEFAULT 800;
+
+ALTER TABLE watch_config
+  ALTER COLUMN haptic_pattern SET DEFAULT 'both';
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 7. ROW LEVEL SECURITY (RLS)

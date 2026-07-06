@@ -10,42 +10,30 @@
 // ============================================================================
 // This replaces the hardcoded #define colors when the user customizes via app.
 
-#define RUNTIME_CONFIG_MAGIC  0xCF7E  // "CF" = config (v6)
+#define RUNTIME_CONFIG_MAGIC  0xCF7F  // "CF" = config (v7) — bumped: uint8_t→uint16_t for timeout fields
 #define RUNTIME_CONFIG_FILE   "config.dat"
 
 struct RuntimeConfig {
-  // Colors: CLOCK_CONNECTED
+  // 32-bit fields
   uint32_t colorHoursConnected;
   uint32_t colorMinutesConnected;
   uint32_t colorSecondsConnected;
-  
-  // Colors: CLOCK_DISCONNECTED
   uint32_t colorHoursDisc;
   uint32_t colorMinutesDisc;
   uint32_t colorSecondsDisc;
   
-  // Brightness & display
-  uint8_t  brightnessPercent;
-  bool     logarithmicBrightness;
-  
-  // Timers
-  uint8_t  clockTimeoutS;
-  uint8_t  sleepTimeoutS;
-  
-  // Battery
-  uint8_t  lowBatteryThreshold;
-  
-  // Haptic pattern (simplified to index)
-  uint8_t  hapticPatternIndex;
-  
-  // IMU wake threshold
-  uint8_t  wakeThreshold;
-
-  // Gyroscope wrist-flick threshold (dps)
+  // 16-bit fields
   uint16_t gyroThreshold;
-
-  // Gyroscope double-flick timing window (ms)
   uint16_t doubleFlickWindow;
+  
+  // 8-bit/bool fields
+  uint8_t  brightnessPercent;
+  uint16_t clockTimeoutS;   // was uint8_t — max 255s caused wrap on timeouts > 4min from app
+  uint16_t sleepTimeoutS;   // was uint8_t — same fix
+  uint8_t  lowBatteryThreshold;
+  uint8_t  hapticPatternIndex;
+  uint8_t  wakeThreshold;
+  bool     logarithmicBrightness;
 };
 
 class RuntimeConfigManager {
@@ -61,6 +49,11 @@ public:
   // Set brightness and save to flash
   void setBrightnessPercent(uint8_t pct) {
     config.brightnessPercent = pct;
+    saveToFlash();
+  }
+  
+  void setWakeThreshold(uint8_t ths) {
+    config.wakeThreshold = ths;
     saveToFlash();
   }
   

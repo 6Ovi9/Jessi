@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
@@ -40,7 +42,10 @@ class BleService extends ChangeNotifier {
       Uuid.parse('4a5c2a5b-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _batteryCharUuid =
-      Uuid.parse('4a5c2a19-5f2d-4e1b-822c-4a2d87b4c85b');
+      Uuid.parse('00002a19-0000-1000-8000-00805f9b34fb');
+
+  static final Uuid _radarModeCharUuid =
+      Uuid.parse('4a5c2a5f-5f2d-4e1b-822c-4a2d87b4c85b');
 
   static final Uuid _calibCmdCharUuid =
       Uuid.parse('4a5c2a5c-5f2d-4e1b-822c-4a2d87b4c85b');
@@ -95,9 +100,18 @@ class BleService extends ChangeNotifier {
   StreamSubscription<List<int>>? _batterySubscription;
   StreamSubscription<List<int>>? _calibStatusSubscription;
   StreamSubscription<List<int>>? _calibThresholdSubscription;
+  StreamSubscription<List<int>>? _radarModeSubscription;
+
+  Timer? _scanTimer;
+  Timer? _retryTimer;
+  Timer? _timeSyncTimer;
 
   int? _calibThreshold;
   int? get calibThreshold => _calibThreshold;
+
+  int _reconnectAttempt = 0;
+  // Set to infinite, but implement an exponential backoff in _retryTimer
+  static const int _maxReconnectAttempts = -1;
 
   // ── Callbacks externos ─────────────────────────────────────────────────
 
@@ -124,11 +138,15 @@ class BleService extends ChangeNotifier {
   /// Liberar recursos
   @override
   void dispose() {
+    _timeSyncTimer?.cancel();
+    _scanTimer?.cancel();
+    _retryTimer?.cancel();
     _scanSubscription?.cancel();
     _connectionSubscription?.cancel();
     _hapticTxSubscription?.cancel();
     _batterySubscription?.cancel();
     _calibStatusSubscription?.cancel();
+    _radarModeSubscription?.cancel();
     super.dispose();
   }
 
@@ -148,21 +166,27 @@ class BleService extends ChangeNotifier {
   /// o que tienen el nombre "Nexus Halo" o similar.
   Future<void> startScan() async {
     if (_isScanning) return;
+    _isScanning = true;
 
-    Map<Permission, PermissionStatus> statuses = await [
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.locationWhenInUse,
-    ].request();
+    final androidSdkInt = await _getAndroidSdkInt();
+    final permissions = requiredPermissionsForScan(
+      isAndroid: Platform.isAndroid,
+      androidSdkInt: androidSdkInt ?? 30,
+    );
 
-    if (statuses[Permission.bluetoothScan] != PermissionStatus.granted ||
-        statuses[Permission.locationWhenInUse] != PermissionStatus.granted) {
+    Map<Permission, PermissionStatus> statuses = await permissions.request();
+
+    final hasRequiredPermissions = permissions.every(
+      (permission) => statuses[permission] == PermissionStatus.granted,
+    );
+
+    if (!hasRequiredPermissions) {
       print('[BLE] Permissions denied');
+      _isScanning = false;
       return;
     }
 
     _discoveredDevices.clear();
-    _isScanning = true;
     notifyListeners();
 
     print('[BLE] Starting scan...');
@@ -197,15 +221,52 @@ class BleService extends ChangeNotifier {
     );
 
     // Auto-detener escaneo después de 15 segundos
-    Future.delayed(const Duration(seconds: 15), () {
+    _scanTimer?.cancel();
+    _scanTimer = Timer(const Duration(seconds: 15), () {
       if (_isScanning) {
         stopScan();
       }
     });
   }
 
+  Future<int?> _getAndroidSdkInt() async {
+    if (!Platform.isAndroid) return null;
+
+    try {
+      final info = await DeviceInfoPlugin().androidInfo;
+      return info.version.sdkInt;
+    } catch (e) {
+      print('[BLE] Failed to read Android SDK version: $e');
+      return null;
+    }
+  }
+
+  @visibleForTesting
+  static List<Permission> requiredPermissionsForScan({
+    required bool isAndroid,
+    required int androidSdkInt,
+  }) {
+    if (!isAndroid) {
+      return [Permission.locationWhenInUse];
+    }
+
+    if (androidSdkInt >= 31) {
+      return [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.locationWhenInUse,
+      ];
+    }
+
+    return [
+      Permission.bluetooth,
+      Permission.locationWhenInUse,
+    ];
+  }
+
   /// Detener escaneo BLE
   void stopScan() {
+    _scanTimer?.cancel();
     _scanSubscription?.cancel();
     _scanSubscription = null;
     _isScanning = false;
@@ -218,6 +279,12 @@ class BleService extends ChangeNotifier {
   /// Conectar a un dispositivo por su ID (MAC address)
   void connectToDevice(String deviceId) {
     print('[BLE] Connecting to device: $deviceId');
+
+    disconnect(); // Ensure any existing timers/subscriptions are canceled
+
+    if (_connectedDeviceId != null && _connectedDeviceId != deviceId) {
+      _reconnectAttempt = 0;
+    }
 
     _connectionState = BleConnectionState.connecting;
     _connectedDeviceId = deviceId;
@@ -257,13 +324,27 @@ class BleService extends ChangeNotifier {
       onError: (error) {
         print('[BLE] Connection error: $error');
         _connectionState = BleConnectionState.disconnected;
+        _onDisconnected();
         notifyListeners();
 
+        if (!shouldScheduleReconnect(
+          isConnected: false,
+          currentAttempt: _reconnectAttempt,
+          maxAttempts: _maxReconnectAttempts,
+        )) {
+          print('[BLE] Reconnect budget exhausted; stopping retries');
+          return;
+        }
+
+        _reconnectAttempt += 1;
+
         // Reintentar conexión después de 5 segundos
-        Future.delayed(const Duration(seconds: 5), () {
+        final backoffSeconds = 5 * (1 << (_reconnectAttempt > 6 ? 6 : _reconnectAttempt - 1));
+        _retryTimer?.cancel();
+        _retryTimer = Timer(Duration(seconds: backoffSeconds), () {
           if (_connectionState == BleConnectionState.disconnected &&
               _connectedDeviceId != null) {
-            print('[BLE] Retrying connection...');
+            print('[BLE] Retrying connection (attempt $_reconnectAttempt)...');
             connectToDevice(_connectedDeviceId!);
           }
         });
@@ -271,44 +352,92 @@ class BleService extends ChangeNotifier {
     );
   }
 
+  @visibleForTesting
+  static bool shouldScheduleReconnect({
+    required bool isConnected,
+    required int currentAttempt,
+    required int maxAttempts,
+  }) {
+    if (isConnected) return false;
+    if (maxAttempts < 0) return true;
+    return currentAttempt < maxAttempts;
+  }
+
   /// Desconectar del dispositivo actual
   void disconnect() {
+    _timeSyncTimer?.cancel();
+    _retryTimer?.cancel();
+    _scanTimer?.cancel();
     _connectionSubscription?.cancel();
     _connectionSubscription = null;
     _hapticTxSubscription?.cancel();
     _batterySubscription?.cancel();
     _calibStatusSubscription?.cancel();
     _calibThresholdSubscription?.cancel();
+    _radarModeSubscription?.cancel();
     _connectionState = BleConnectionState.disconnected;
-    _connectedDeviceId = null;
 
     notifyListeners();
     print('[BLE] Disconnected');
   }
 
   /// Llamado al establecer conexión exitosa
-  void _onConnected(String deviceId) {
+  void _onConnected(String deviceId) async {
     print('[BLE] Connected! Setting up subscriptions...');
+
+    // Delay MTU request to prevent Android BLE stack dropping the connection
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // Solicitar MTU extendido para configuraciones JSON grandes (evita truncamiento)
+    try {
+      final negotiatedMtu = await _ble.requestMtu(deviceId: deviceId, mtu: 251);
+      print('[BLE] MTU negotiated: $negotiatedMtu');
+    } catch (e) {
+      print('[BLE] Failed to negotiate MTU: $e');
+    }
 
     // Suscribirse a notificaciones del reloj
     _subscribeToHapticTx(deviceId);
+    await Future.delayed(const Duration(milliseconds: 150));
     _subscribeToBattery(deviceId);
+    await Future.delayed(const Duration(milliseconds: 150));
     _subscribeToCalibStatus(deviceId);
+    await Future.delayed(const Duration(milliseconds: 150));
     _subscribeToCalibThreshold(deviceId);
+    await Future.delayed(const Duration(milliseconds: 150));
+    _subscribeToRadarMode(deviceId);
 
-    // Sincronizar la hora real al reloj (pequeño delay para que el stack BLE
-    // termine de inicializar las características antes del primer write)
-    Future.delayed(const Duration(milliseconds: 500), () {
-      syncTime();
+    // Leer la batería inicial directamente
+    final batteryChar = QualifiedCharacteristic(
+      serviceId: _serviceUuid,
+      characteristicId: _batteryCharUuid,
+      deviceId: deviceId,
+    );
+    _ble.readCharacteristic(batteryChar).then((data) {
+      if (_connectionState != BleConnectionState.connected) return;
+      if (data.isNotEmpty) {
+        _batteryPercent = data[0];
+        print('[BLE] Initial battery read: $_batteryPercent%');
+        onBatteryChanged?.call(_batteryPercent);
+        notifyListeners();
+      }
+    }).catchError((e) {
+      print('[BLE] Failed to read initial battery: $e');
     });
+
+    // Sincronizar la hora real al reloj (con retry exponencial nativo)
+    syncTime();
   }
 
   /// Llamado al perder la conexión
   void _onDisconnected() {
+    _timeSyncTimer?.cancel();
+    _retryTimer?.cancel();
     _hapticTxSubscription?.cancel();
     _batterySubscription?.cancel();
     _calibStatusSubscription?.cancel();
     _calibThresholdSubscription?.cancel();
+    _radarModeSubscription?.cancel();
     _radarModeActive = false;
     _batteryPercent = -1;
     _calibThreshold = null;
@@ -363,15 +492,53 @@ class BleService extends ChangeNotifier {
     );
   }
 
+  /// Suscribirse a RADAR_MODE_CHAR
+  void _subscribeToRadarMode(String deviceId) {
+    final characteristic = QualifiedCharacteristic(
+      serviceId: _serviceUuid,
+      characteristicId: _radarModeCharUuid,
+      deviceId: deviceId,
+    );
+
+    _radarModeSubscription =
+        _ble.subscribeToCharacteristic(characteristic).listen(
+      (data) {
+        if (data.isNotEmpty) {
+          _radarModeActive = data[0] == 1;
+          print('[BLE] Radar mode changed by watch: $_radarModeActive');
+          onRadarModeChanged?.call(_radarModeActive);
+          notifyListeners();
+        }
+      },
+      onError: (error) {
+        print('[BLE] Radar mode subscription error: $error');
+      },
+    );
+  }
+
   // ── Escritura al reloj ─────────────────────────────────────────────────
+
+  Future<void> _bleWriteQueue = Future<void>.value();
+
+  Future<void> _enqueueWrite(Future<void> Function() writeOp) {
+    final completer = Completer<void>();
+    _bleWriteQueue = _bleWriteQueue.whenComplete(() async {
+      try {
+        await writeOp();
+        completer.complete();
+      } catch (e) {
+        completer.completeError(e);
+      }
+    });
+    return completer.future;
+  }
 
   /// Sincronizar la hora real del reloj.
   ///
-  /// Envía el Unix timestamp actual (segundos desde epoch 1970-01-01 UTC)
-  /// como uint32 little-endian. El reloj lo usa para mostrar la hora real
-  /// en lugar del tiempo de uptime desde el arranque.
-  /// Se llama automáticamente al conectar y puede llamarse manualmente.
-  Future<void> syncTime() async {
+  /// Envía el Unix timestamp UTC actual y el offset horario en segundos
+  /// como uint32 e int32 little-endian (8 bytes en total).
+  /// Se llama automáticamente al conectar e incluye reintentos y mantenimiento periódico.
+  Future<void> syncTime([int attempt = 0]) async {
     if (_connectionState != BleConnectionState.connected ||
         _connectedDeviceId == null) {
       return;
@@ -383,24 +550,38 @@ class BleService extends ChangeNotifier {
       deviceId: _connectedDeviceId!,
     );
 
-    // Tiempo local ajustado a segundos para el reloj
     final now = DateTime.now();
-    final int nowEpoch =
-        (now.millisecondsSinceEpoch ~/ 1000) + now.timeZoneOffset.inSeconds;
+    final int nowEpoch = now.millisecondsSinceEpoch ~/ 1000;
+    final int tzOffset = now.timeZoneOffset.inSeconds;
 
-    final bytes = ByteData(4);
+    final bytes = ByteData(8);
     bytes.setUint32(0, nowEpoch, Endian.little);
+    bytes.setInt32(4, tzOffset, Endian.little);
 
     try {
-      await _ble.writeCharacteristicWithResponse(
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
         characteristic,
-        value: bytes.buffer.asUint8List(),
-      );
-      print('[BLE] Time synced: $nowEpoch '
-          '(${DateTime.fromMillisecondsSinceEpoch(nowEpoch * 1000).toIso8601String()})');
+        value: bytes.buffer.asUint8List(0, 8),
+      ));
+      print('[BLE] Time synced: UTC $nowEpoch, TZ offset $tzOffset '
+          '(${now.toUtc().toIso8601String()})');
+      
+      // Mantenimiento periódico cada 15 minutos para evitar el drift del reloj
+      _timeSyncTimer?.cancel();
+      _timeSyncTimer = Timer(const Duration(minutes: 15), () => syncTime());
     } catch (e) {
-      print('[BLE] Time sync failed: $e');
+      print('[BLE] Time sync failed (attempt $attempt): $e');
+      if (attempt < 5) {
+        final delayMs = 500 * (1 << attempt); // Exponential backoff: 500ms, 1s, 2s, 4s, 8s
+        _timeSyncTimer?.cancel();
+        _timeSyncTimer = Timer(Duration(milliseconds: delayMs), () => syncTime(attempt + 1));
+      } else {
+        print('[BLE] Time sync max retries reached. Will retry in 15 minutes.');
+        _timeSyncTimer?.cancel();
+        _timeSyncTimer = Timer(const Duration(minutes: 15), () => syncTime());
+      }
     }
+
   }
 
   /// Enviar bearing al reloj (BEARING_CHAR, float 4 bytes).
@@ -422,13 +603,17 @@ class BleService extends ChangeNotifier {
     final bytes = ByteData(4);
     bytes.setFloat32(0, bearing, Endian.little);
 
-    await _ble.writeCharacteristicWithResponse(
-      characteristic,
-      value: bytes.buffer.asUint8List(),
-    );
+    try {
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
+        characteristic,
+        value: bytes.buffer.asUint8List(0, 4),
+      ));
 
-    _lastBearingSent = bearing;
-    print('[BLE] Bearing written: ${bearing.toStringAsFixed(1)}°');
+      _lastBearingSent = bearing;
+      print('[BLE] Bearing written: ${bearing.toStringAsFixed(1)}°');
+    } catch (e) {
+      print('[BLE] Error writing bearing: $e');
+    }
   }
 
   /// Enviar distancia al reloj (DISTANCE_CHAR, uint32 4 bytes).
@@ -450,13 +635,36 @@ class BleService extends ChangeNotifier {
     final bytes = ByteData(4);
     bytes.setUint32(0, distanceMeters, Endian.little);
 
-    await _ble.writeCharacteristicWithResponse(
-      characteristic,
-      value: bytes.buffer.asUint8List(),
-    );
+    try {
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
+        characteristic,
+        value: bytes.buffer.asUint8List(0, 4),
+      ));
 
-    _lastDistanceSent = distanceMeters;
-    print('[BLE] Distance written: ${distanceMeters}m');
+      _lastDistanceSent = distanceMeters;
+      print('[BLE] Distance written: ${distanceMeters}m');
+    } catch (e) {
+      print('[BLE] Error writing distance: $e');
+    }
+  }
+
+  /// Enviar estado de radar al reloj (RADAR_MODE_CHAR, 1 byte).
+  Future<void> writeRadarMode(bool active) async {
+    if (_connectionState != BleConnectionState.connected || _connectedDeviceId == null) return;
+    try {
+      final characteristic = QualifiedCharacteristic(
+        serviceId: _serviceUuid,
+        characteristicId: _radarModeCharUuid,
+        deviceId: _connectedDeviceId!,
+      );
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
+        characteristic,
+        value: [active ? 0x01 : 0x00],
+      ));
+      print('[BLE] Radar mode written: $active');
+    } catch (e) {
+      print('[BLE] Error writing radar mode: $e');
+    }
   }
 
   /// Enviar comando háptico al reloj (HAPTIC_RX_CHAR).
@@ -475,12 +683,16 @@ class BleService extends ChangeNotifier {
       deviceId: _connectedDeviceId!,
     );
 
-    await _ble.writeCharacteristicWithResponse(
-      characteristic,
-      value: [0x01],
-    );
+    try {
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
+        characteristic,
+        value: [0x01],
+      ));
 
-    print('[BLE] Haptic RX command sent to watch');
+      print('[BLE] Haptic RX command sent to watch');
+    } catch (e) {
+      print('[BLE] Error writing haptic command: $e');
+    }
   }
 
   /// Enviar configuración al reloj (CONFIG_CHAR, JSON comprimido).
@@ -500,10 +712,10 @@ class BleService extends ChangeNotifier {
 
     try {
       final jsonStr = jsonEncode(config.toBleJson());
-      await _ble.writeCharacteristicWithResponse(
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
         characteristic,
         value: utf8.encode(jsonStr),
-      );
+      ));
       print('[BLE] Config written: $jsonStr');
     } catch (e) {
       print('[BLE] Error writing config: $e');
@@ -527,10 +739,10 @@ class BleService extends ChangeNotifier {
     );
 
     try {
-      await _ble.writeCharacteristicWithResponse(
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
         characteristic,
         value: Uint8List.fromList([0x01]),
-      );
+      ));
       print('[BLE] OTA trigger sent — watch rebooting into DFU mode');
     } catch (e) {
       print('[BLE] Error triggering OTA: $e');
@@ -552,12 +764,16 @@ class BleService extends ChangeNotifier {
       deviceId: _connectedDeviceId!,
     );
 
-    await _ble.writeCharacteristicWithResponse(
-      characteristic,
-      value: [0x01], // START
-    );
+    try {
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
+        characteristic,
+        value: [0x01], // START
+      ));
 
-    print('[BLE] Calibration START sent');
+      print('[BLE] Calibration START sent');
+    } catch (e) {
+      print('[BLE] Error sending Calibration START: $e');
+    }
   }
 
   /// Cancelar calibración en curso
@@ -573,13 +789,42 @@ class BleService extends ChangeNotifier {
       deviceId: _connectedDeviceId!,
     );
 
-    await _ble.writeCharacteristicWithResponse(
-      characteristic,
-      value: [0x03], // CANCEL
+    try {
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
+        characteristic,
+        value: [0x03], // CANCEL
+      ));
+
+      _calibStatusSubscription?.cancel();
+      print('[BLE] Calibration CANCEL sent');
+    } catch (e) {
+      print('[BLE] Error sending Calibration CANCEL: $e');
+    }
+  }
+
+  /// Iniciar calibración de la brújula (magnetómetro)
+  Future<void> startCompassCalibration() async {
+    if (_connectionState != BleConnectionState.connected ||
+        _connectedDeviceId == null) {
+      return;
+    }
+
+    final characteristic = QualifiedCharacteristic(
+      serviceId: _serviceUuid,
+      characteristicId: _calibCmdCharUuid,
+      deviceId: _connectedDeviceId!,
     );
 
-    _calibStatusSubscription?.cancel();
-    print('[BLE] Calibration CANCEL sent');
+    try {
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
+        characteristic,
+        value: [0x04], // 0x04 = START COMPASS CALIBRATION
+      ));
+
+      print('[BLE] Compass calibration START sent');
+    } catch (e) {
+      print('[BLE] Error sending Compass calibration START: $e');
+    }
   }
 
   /// Escribir umbral de wake-on-motion
@@ -595,12 +840,16 @@ class BleService extends ChangeNotifier {
       deviceId: _connectedDeviceId!,
     );
 
-    await _ble.writeCharacteristicWithResponse(
-      characteristic,
-      value: [threshold.clamp(0, 255)],
-    );
+    try {
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(
+        characteristic,
+        value: [threshold.clamp(0, 255)],
+      ));
 
-    print('[BLE] Wake threshold written: 0x${threshold.toRadixString(16)}');
+      print('[BLE] Wake threshold written: 0x${threshold.toRadixString(16)}');
+    } catch (e) {
+      print('[BLE] Error writing Wake threshold: $e');
+    }
   }
 
   /// Suscribirse al progreso de calibración

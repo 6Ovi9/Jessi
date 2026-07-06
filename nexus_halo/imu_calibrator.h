@@ -54,7 +54,10 @@ private:
   float current_gesture_max;
   uint32_t gesture_start_ms;
   bool in_gesture;
-  float last_accel_magnitude;
+  float prev_x;
+  float prev_y;
+  float prev_z;
+  uint32_t last_motion_ms;
   
   // Result
   uint8_t calculated_threshold;

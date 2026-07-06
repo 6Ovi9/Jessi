@@ -2,7 +2,7 @@ name: nexus_halo
 description: Nexus Halo — Smart watch companion app for real-time partner tracking
 
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -28,6 +28,9 @@ dependencies:
 
   # Runtime permissions (BLE, GPS, etc.)
   permission_handler: ^11.3.0
+
+  # Android device info for SDK-aware permission selection
+  device_info_plus: ^11.0.0
 
   # Geo calculations (distance, bearing)
   latlong2: ^0.9.1

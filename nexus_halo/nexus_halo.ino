@@ -15,9 +15,7 @@
   - Vibration motor via MOSFET (D9)
   - LED power MOSFET (D10)
 
-  Version: 1.2
-  Author: [Your Name]
-  License: MIT
+  Version: 2.2
   ============================================================================
 */
 
@@ -64,33 +62,79 @@ LSM6DS3 lsm6ds3(I2C_MODE, 0x6A); // Seeed LSM6DS3 on I2C, address 0x6A
 
 // Timing
 uint32_t loop_last_ms = 0;
+
+// Pending flags for BLE callbacks (to execute safely in main loop)
+volatile bool ble_calib_start_pending = false;
+volatile bool ble_threshold_write_pending = false;
+volatile uint8_t ble_new_threshold = IMU_WAKE_UP_THS_DEFAULT;
 const uint32_t LOOP_INTERVAL_MS = 10; // 100 Hz main loop
 
 // State variables
 bool ble_connected = false;
-float current_bearing = 0;     // From BLE
-uint32_t current_distance = 0; // From BLE
+// BUG-003: BLE callbacks write these from ISR context — must be volatile so the
+// compiler never caches them in a register across the ISR boundary.
+volatile float current_bearing = 0;
+volatile uint32_t current_distance = 0;
 uint8_t battery_percent = 100;
-int last_wake_source = WAKE_SOURCE_NONE;
-bool lsm6ds3_connected = false; // IMU connection status
+// BUG-001: Written from ISR (onButtonWakeup / onMotionWakeup) — must be volatile.
+volatile int last_wake_source = WAKE_SOURCE_NONE;
+bool lsm6ds3_connected = false;
 volatile bool motion_detected_flag = false;
 volatile bool config_update_pending = false;
+// BUG-006: Deferred cancel flag — set from BLE ISR, processed safely in loop().
+volatile bool calib_cancel_pending = false;
 uint32_t last_config_change_ms = 0;
 bool config_save_pending = false;
-bool haptic_rx_pending = false;
+volatile bool haptic_rx_pending = false;
+volatile bool calib_start_pending = false;
+volatile bool ota_request_pending = false;
+GestureType simulated_gesture = GESTURE_NONE;
 
 // ── Time sync (Unix timestamp received from app via BLE) ────────────────────
-bool time_synced = false;    // True after first sync from app
-uint32_t unix_base_ts = 0;   // Unix epoch at the moment of last sync
-uint32_t millis_at_sync = 0; // millis() value at the moment of last sync
+// BUG-003: All variables must be written atomically.
+volatile bool time_synced = false;
+volatile uint32_t unix_base_ts = 0;
+volatile int32_t tz_offset_s = 0;
+volatile uint32_t millis_at_sync = 0;
+
+/// Return current Unix timestamp (milliseconds since epoch).
+/// Falls back to uptime if no sync has been received yet.
+inline uint64_t getRealEpochMs() {
+  bool local_synced;
+  uint32_t local_base, local_millis;
+  noInterrupts();
+  local_synced = time_synced;
+  local_base = unix_base_ts;
+  local_millis = millis_at_sync;
+  interrupts();
+  
+  if (local_synced) {
+    uint64_t epoch_ms = ((uint64_t)local_base) * 1000ULL
+                      + (uint64_t)(millis() - local_millis);
+    return epoch_ms;
+  }
+  return millis();
+}
 
 /// Return current Unix timestamp (seconds since epoch).
 /// Falls back to uptime if no sync has been received yet.
+/// BUG-002: Cast to uint64_t BEFORE multiplying. A 2024 Unix timestamp (~1.7e9)
+/// multiplied by 1000 as uint32_t overflows, producing a garbage clock time.
 inline uint32_t getRealEpoch() {
-  if (time_synced) {
-    return unix_base_ts + (millis() - millis_at_sync) / 1000;
+  bool local_synced;
+  uint32_t local_base, local_millis;
+  noInterrupts();
+  local_synced = time_synced;
+  local_base = unix_base_ts;
+  local_millis = millis_at_sync;
+  interrupts();
+  
+  if (local_synced) {
+    uint64_t epoch_ms = ((uint64_t)local_base) * 1000ULL
+                      + (uint64_t)(millis() - local_millis);
+    return (uint32_t)(epoch_ms / 1000ULL);
   }
-  return millis() / 1000; // Fallback: seconds since boot
+  return millis() / 1000;
 }
 
 // ============================================================================
@@ -105,13 +149,32 @@ void setup() {
   while (!Serial && (millis() - t < 5000)) {
     delay(10);
   }
-  delay(500);
+  Serial.println("[SETUP] Nexus Halo Firmware v2.3.0");
 
-  Serial.println("[SETUP] Nexus Halo Firmware v1.2");
+  // Turn off XIAO internal status LEDs (Active LOW) to prevent battery drain
+  pinMode(LED_RED, OUTPUT);
+  digitalWrite(LED_RED, HIGH);
+  pinMode(LED_GREEN, OUTPUT);
+  digitalWrite(LED_GREEN, HIGH);
+  pinMode(LED_BLUE, OUTPUT);
+  digitalWrite(LED_BLUE, HIGH);
+
+  // ========================================================================
+  // CRITICAL: Power on internal IMU first to stabilize I2C lines
+  // ========================================================================
+  Serial.println("[SETUP] Powering on internal IMU...");
+  pinMode(PIN_LSM6DS3TR_C_POWER, OUTPUT);
+  digitalWrite(PIN_LSM6DS3TR_C_POWER, HIGH);
+  delay(300); // Increased from 50ms to 300ms to prevent 3.3V rail brownout when compass initializes
 
   // ========================================================================
   // CRITICAL: Initialize EEPROM/Flash first so LittleFS is ready
   // ========================================================================
+  Serial.println("[SETUP] Initializing InternalFS...");
+  if (!InternalFS.begin()) {
+    Serial.println("[SETUP] ✗ InternalFS Mount Failed!");
+  }
+  
   Serial.println("[SETUP] Initializing EEPROM...");
   eeprom_manager.begin();
 
@@ -122,27 +185,42 @@ void setup() {
   // DIAGNOSTIC I2C SCANNER IN MAIN SETUP (Mimics compass_diagnostic.ino)
   // ========================================================================
   Serial.println("\n--- RUNNING IN-SETUP I2C SCANNER (10kHz) ---");
-  Wire.setPins(PIN_COMPASS_SDA, PIN_COMPASS_SCL);
-  Wire.begin();
   pinMode(PIN_COMPASS_SDA, INPUT_PULLUP);
   pinMode(PIN_COMPASS_SCL, INPUT_PULLUP);
-  // CRITICAL: Lowered to 10kHz because internal pullups (13k) are too weak for
-  // 100kHz!
-  Wire.setClock(10000);
-  delay(100);
+  delay(10);
+  
+  if (digitalRead(PIN_COMPASS_SDA) == LOW || digitalRead(PIN_COMPASS_SCL) == LOW) {
+    Serial.println("  [SCAN] ✗ I2C bus (D4/D5) is stuck LOW! Missing pull-ups or hardware fault. Skipping scan.");
+  } else {
+    Wire.setPins(PIN_COMPASS_SDA, PIN_COMPASS_SCL);
+    Wire.begin();
+    Wire.setTimeout(3);
+    pinMode(PIN_COMPASS_SDA, INPUT_PULLUP);
+    pinMode(PIN_COMPASS_SCL, INPUT_PULLUP);
+    // CRITICAL: Lowered to 10kHz because internal pullups (13k) are too weak for
+    // 100kHz!
+    Wire.setClock(10000);
+    delay(100);
 
-  int found_count = 0;
-  for (uint8_t addr = 1; addr < 128; addr++) {
-    Wire.beginTransmission(addr);
-    int err = Wire.endTransmission();
-    if (err == 0) {
-      Serial.print("  [SCAN] Found device at 0x");
-      Serial.println(addr, HEX);
-      found_count++;
+    int found_count = 0;
+    for (uint8_t addr = 1; addr < 128; addr++) {
+      Wire.beginTransmission(addr);
+      int err = Wire.endTransmission();
+      if (err == 0) {
+        Serial.print("  [SCAN] Found device at 0x");
+        Serial.println(addr, HEX);
+        found_count++;
+      }
     }
-  }
-  if (found_count == 0) {
-    Serial.println("  [SCAN] No devices found on Wire (D4/D5).");
+    if (found_count == 0) {
+      Serial.println("  [SCAN] No devices found on Wire (D4/D5).");
+    }
+    Wire.end(); // CRITICAL: Release hardware TWI
+    NRF_TWIM0->PSEL.SCL = 0xFFFFFFFF; // Disconnect TWI hardware pins
+    NRF_TWIM0->PSEL.SDA = 0xFFFFFFFF;
+    pinMode(PIN_COMPASS_SDA, INPUT_PULLUP);
+    pinMode(PIN_COMPASS_SCL, INPUT_PULLUP);
+    delay(10);
   }
   Serial.println("------------------------------------\n");
 
@@ -166,13 +244,9 @@ void setup() {
   // Initialize internal I2C bus (Wire1 → LSM6DS3 IMU)
   // ========================================================================
 
-  Serial.println("[SETUP] Powering on internal IMU...");
-  pinMode(PIN_LSM6DS3TR_C_POWER, OUTPUT);
-  digitalWrite(PIN_LSM6DS3TR_C_POWER, HIGH);
-  delay(50);
-
   Serial.println("[SETUP] Initializing I2C buses (Wire & Wire1)...");
   Wire1.begin(); // Internal bus for LSM6DS3
+  Wire1.setTimeout(3);
   delay(20);
 
   // ========================================================================
@@ -218,8 +292,9 @@ void setup() {
 
 #if IMU_WAKE_ENABLED
   Serial.println("[SETUP] Rise-to-wake enabled. Loading calibration...");
-  uint8_t saved_threshold;
-  if (eeprom_manager.loadCalibration(saved_threshold)) {
+  static uint8_t saved_threshold = IMU_WAKE_UP_THS_DEFAULT;
+  bool has_saved = eeprom_manager.loadCalibration(saved_threshold);
+  if (has_saved) {
     power_manager.updateIMUThreshold(saved_threshold);
     Serial.print("[SETUP] Loaded threshold: 0x");
     Serial.println(saved_threshold, HEX);
@@ -257,7 +332,24 @@ void setup() {
   // BLE
   Serial.println("[SETUP] Initializing BLE...");
   ble_handler.begin();
-  led_controller.setBLEActive(true);
+
+#if IMU_WAKE_ENABLED
+  if (has_saved) {
+    if (ble_handler.beginOk()) {
+      ble_handler.notifyCalibThreshold(saved_threshold);
+    }
+  }
+#endif
+
+  if (ble_handler.beginOk()) {
+    char json_buf[256];
+    const RuntimeConfig& c = runtime_config.getConfig();
+    snprintf(json_buf, sizeof(json_buf), "{\"ct\":%d,\"st\":%d,\"chc\":\"%08X\",\"cmc\":\"%08X\",\"csc\":\"%08X\",\"chd\":\"%08X\",\"cmd\":\"%08X\",\"csd\":\"%08X\",\"br\":%d,\"lb\":%d,\"wt\":%d,\"gt\":%d,\"df\":%d,\"hp\":%d,\"lg\":%d}", 
+      c.clockTimeoutS, c.sleepTimeoutS, (unsigned int)c.colorHoursConnected, (unsigned int)c.colorMinutesConnected, (unsigned int)c.colorSecondsConnected,
+      (unsigned int)c.colorHoursDisc, (unsigned int)c.colorMinutesDisc, (unsigned int)c.colorSecondsDisc, c.brightnessPercent, c.lowBatteryThreshold,
+      c.wakeThreshold, c.gyroThreshold, c.doubleFlickWindow, c.hapticPatternIndex, c.logarithmicBrightness ? 1 : 0);
+    ble_handler.notifyConfig(json_buf);
+  }
 
   // Setup BLE callbacks
   ble_handler.onHapticRX(onBLEHapticRX);
@@ -267,12 +359,21 @@ void setup() {
   ble_handler.onCalibStart(onBLECalibStart);
   ble_handler.onCalibEnd(onBLECalibEnd);
   ble_handler.onCalibCancel(onBLECalibCancel);
+  ble_handler.onCompassCalibStart(onBLECompassCalibStart);
+  ble_handler.onThresholdWrite(onBLEThresholdWrite);
   ble_handler.onOTARequest(onBLEOTARequest);
   ble_handler.onTimeSync(onBLETimeSync); // NEW: real-time clock sync
 
   // State machine
   Serial.println("[SETUP] Initializing state machine...");
   state_machine.begin();
+
+  // BUG-032: Register low-battery pulse handler so the 30s timer actually fires
+  // a warning instead of just updating a timestamp with no effect.
+  state_machine.setLowBatteryPulseCallback([]() {
+    led_controller.errorBattery();
+    haptic.playPattern(HAPTIC_PATTERN_BATTERY);
+  });
 
 // ========================================================================
 // Setup interrupts for waking from DEEP_SLEEP
@@ -300,6 +401,18 @@ void setup() {
     state_machine.transitionTo(STATE_CLOCK_DISCONNECTED);
   }
 
+  // CRITICAL: Reset the clock timer NOW so setup() overhead doesn't eat
+  // into the display timeout. The timer was started during transitionTo()
+  // above, but setup() itself can take several seconds. Without this, the
+  // watch enters DEEP_SLEEP almost immediately on first boot.
+  state_machine.resetTimer((uint32_t)runtime_config.getConfig().clockTimeoutS * 1000);
+
+  // CRITICAL: Bluefruit.begin() re-enables the internal LED manager which
+  // overrides our LED_BLUE = HIGH from above, causing the blue status LED
+  // to blink continuously during BLE advertising. Disable it again here.
+  Bluefruit.autoConnLed(false);
+  digitalWrite(LED_BLUE, HIGH);
+
   Serial.println("[SETUP] Complete! Starting main loop...\n");
 
   loop_last_ms = millis();
@@ -312,32 +425,114 @@ void setup() {
 void loop() {
   uint32_t now_ms = millis();
 
+  noInterrupts();
+  if (time_synced && (millis() - millis_at_sync > 86400000UL)) {
+    unix_base_ts += 86400; // Advance 1 day in seconds
+    millis_at_sync += 86400000UL;
+  }
+  interrupts();
+
   // Maintain ~10ms loop interval
   if ((now_ms - loop_last_ms) < LOOP_INTERVAL_MS) {
-    return; // Not time yet
+    if (state_machine.getCurrentState() != STATE_DEEP_SLEEP) {
+      return; // Not time yet
+    }
   }
   loop_last_ms = now_ms;
 
-  // Process deferred config updates in main thread to prevent FreeRTOS stack
-  // overflow/deadlocks
+  // Handle pending BLE commands safely outside of ISR
+  if (ble_calib_start_pending) {
+    ble_calib_start_pending = false;
+    Serial.println("[BLE] Compass Calibration requested");
+    if (state_machine.getCurrentState() == STATE_DEEP_SLEEP) {
+      state_machine.transitionTo(STATE_WAKING_UP);
+    }
+    state_machine.transitionTo(STATE_COMPASS_CALIBRATION);
+    compass.startCalibration();
+  }
+  if (ble_threshold_write_pending) {
+    ble_threshold_write_pending = false;
+    Serial.print("[BLE] Threshold write requested: ");
+    Serial.println(ble_new_threshold);
+    eeprom_manager.saveCalibration(ble_new_threshold);
+    power_manager.updateIMUThreshold(ble_new_threshold);
+    runtime_config.setWakeThreshold(ble_new_threshold);
+  }
+
+  // BUG-008: Snapshot the flag and JSON atomically before processing.
+  // A rapid second BLE write could overwrite config_json_buf between the flag
+  // clear and the getConfigJson() call, silently dropping the new config.
   if (config_update_pending) {
+    char local_json[1024];
+    noInterrupts();
     config_update_pending = false;
-    const char *json = ble_handler.getConfigJson();
-    if (json && json[0] != '\0') {
-      runtime_config.updateFromJson(json);
+    strlcpy(local_json, ble_handler.getConfigJson(), sizeof(local_json));
+    interrupts();
+    if (local_json[0] != '\0') {
+      runtime_config.updateFromJson(local_json);
       Serial.println("[CONFIG] Config parsed and applied to RAM");
 
-      // If wake threshold changed, apply it immediately
       const RuntimeConfig &cfg = runtime_config.getConfig();
-      static uint8_t last_applied_threshold = 0xFF; // Start with invalid value
+      static uint8_t last_applied_threshold = 0xFF;
       if (last_applied_threshold != cfg.wakeThreshold) {
         last_applied_threshold = cfg.wakeThreshold;
         power_manager.updateIMUThreshold(cfg.wakeThreshold);
+        eeprom_manager.saveCalibration(cfg.wakeThreshold); // Sync the other direction
       }
 
-      // Start debounce timer for saving to flash (3 seconds idle)
-      last_config_change_ms = millis();
+      // BUG-041: Apply user-configurable timeouts to the active state.
+      // clockTimeoutS / sleepTimeoutS were parsed from JSON and stored in RAM
+      // but never fed back into the state machine — they had zero effect.
+      {
+        State cur = state_machine.getCurrentState();
+        uint32_t clock_ms = (uint32_t)cfg.clockTimeoutS * 1000;
+        uint32_t radar_ms = (uint32_t)cfg.sleepTimeoutS * 1000;
+        if (cur == STATE_CLOCK_CONNECTED || cur == STATE_CLOCK_DISCONNECTED) {
+          state_machine.resetTimer(clock_ms);
+        } else if (cur == STATE_RADAR_MODE || cur == STATE_DISTANCE_MODE) {
+          state_machine.resetTimer(radar_ms);
+        }
+      }
+
+      // BUG-009: Use now_ms (captured at loop top) not a new millis() call.
+      // If millis() rolls over between now_ms and this call, the debounce
+      // timer gets a value far in the future, triggering an immediate save.
+      last_config_change_ms = now_ms;
       config_save_pending = true;
+    }
+  }
+
+  if (calib_cancel_pending) {
+    calib_cancel_pending = false;
+    imu_calibrator.cancel();
+    if (state_machine.getCurrentState() != STATE_DEEP_SLEEP) {
+      state_machine.transitionTo(state_machine.getPreviousState());
+    }
+  }
+
+  if (calib_start_pending) {
+    calib_start_pending = false;
+    if (state_machine.getCurrentState() == STATE_DEEP_SLEEP) {
+      state_machine.transitionTo(STATE_WAKING_UP);
+    }
+    state_machine.transitionTo(STATE_CALIBRATION_MODE);
+  }
+
+  if (ota_request_pending) {
+    ota_request_pending = false;
+    state_machine.transitionTo(STATE_OTA_MODE);
+  }
+
+  if (haptic_rx_pending) {
+    if (state_machine.getCurrentState() != STATE_OTA_MODE) {
+      if (state_machine.getCurrentState() == STATE_DEEP_SLEEP) {
+        state_machine.transitionTo(STATE_WAKING_UP);
+      } else if (state_machine.getCurrentState() != STATE_WAKING_UP) {
+        haptic_rx_pending = false;
+        state_machine.transitionTo(STATE_HAPTIC_RX);
+      }
+    } else {
+      haptic_rx_pending = false;
     }
   }
 
@@ -350,7 +545,7 @@ void loop() {
   }
 
   // Print state transitions for debugging
-  static State last_printed_state = STATE_DEEP_SLEEP;
+  static State last_printed_state = state_machine.getCurrentState();
   State cur_state = state_machine.getCurrentState();
   if (cur_state != last_printed_state) {
     Serial.print("\n[STATE] Transition: ");
@@ -361,34 +556,8 @@ void loop() {
   }
 
   // ========================================================================
-  // UPDATE PERIPHERALS
+  // SERIAL SIMULATOR
   // ========================================================================
-
-  gesture_detector.setThreshold(runtime_config.getConfig().gyroThreshold);
-  gesture_detector.setDoubleFlickWindow(
-      runtime_config.getConfig().doubleFlickWindow);
-  gesture_detector.update(now_ms);
-  compass.update();
-  ble_handler.update();
-  power_manager.update();
-  led_controller.update(now_ms);
-  haptic.update(now_ms);
-
-  // ========================================================================
-  // READ INPUTS & SERIAL SIMULATOR
-  // ========================================================================
-
-  GestureType gesture = gesture_detector.getGesture();
-
-  // Notify app of gyro flick detection for live calibration feedback (0xFE =
-  // Gyro Flick)
-  if (gesture != GESTURE_NONE && ble_connected) {
-    ble_handler.notifyCalibStatus(0xFE, 0xFE);
-  }
-
-  // Read Serial inputs to simulate button gestures (bypass dielectric hardware
-  // issue)
-  static GestureType simulated_gesture = GESTURE_NONE;
   while (Serial.available() > 0) {
     char c = Serial.read();
     if (c == 't' || c == 'T') {
@@ -400,6 +569,10 @@ void loop() {
     } else if (c == 's' || c == 'S') {
       simulated_gesture = GESTURE_PRESS_SHORT;
       Serial.println("\n[SERIAL CMD] Simulating: PRESS SHORT");
+    } else if (c == 'c' || c == 'C') {
+      Serial.println("\n[SERIAL CMD] Triggering 3D Compass Calibration");
+      Serial.println(">>> SPIN THE DEVICE IN A 3D FIGURE-8 FOR 10 SECONDS! <<<");
+      compass.startCalibration();
     } else if (c == 'l' || c == 'L') {
       simulated_gesture = GESTURE_PRESS_LONG;
       Serial.println("\n[SERIAL CMD] Simulating: PRESS LONG");
@@ -431,13 +604,96 @@ void loop() {
     }
   }
 
-  if (simulated_gesture != GESTURE_NONE) {
+  // ========================================================================
+  // EARLY RETURN FOR DEEP SLEEP
+  // ========================================================================
+  if (cur_state == STATE_DEEP_SLEEP) {
+    // Check Serial for simulated wakeups
+    if (simulated_gesture == GESTURE_TAP_SIMPLE) {
+        Serial.println("\n[SERIAL CMD] Simulating WAKEUP (TAP)");
+        last_wake_source = WAKE_SOURCE_TAP;
+        simulated_gesture = GESTURE_NONE; // Reset it so it doesn't trigger again
+    }
+
+#if IMU_WAKE_ENABLED
+    // Process motion interrupt flag if it fired while asleep
+    if (motion_detected_flag) {
+      motion_detected_flag = false;
+      Serial.println("[MOTION] Wake gesture detected (INT1 RISING)");
+      if (ble_connected) {
+        ble_handler.notifyCalibStatus(0xFF, 0xFF);
+      }
+    }
+#endif
+
+    // Run deep sleep logic to either sleep CPU or process wakeup
+    handleStateDeepSleep(GESTURE_NONE);
+    if (state_machine.getCurrentState() == STATE_DEEP_SLEEP) {
+      state_machine.clearStateChanged();
+      return;
+    }
+  }
+
+  // ========================================================================
+  // UPDATE PERIPHERALS
+  // ========================================================================
+
+  gesture_detector.setThreshold(runtime_config.getConfig().gyroThreshold);
+  gesture_detector.setDoubleFlickWindow(
+      runtime_config.getConfig().doubleFlickWindow);
+  gesture_detector.update(now_ms);
+
+  float ax = 0, ay = 0, az = 0;
+  if (lsm6ds3_connected) {
+    ax = lsm6ds3.readFloatAccelX();
+    ay = lsm6ds3.readFloatAccelY();
+    az = lsm6ds3.readFloatAccelZ();
+  }
+  compass.update(ax, ay, az);
+
+  // Imprimir lecturas de la brújula periódicamente por serial para diagnóstico
+  // (Removed debug block to clear console spam)
+
+  ble_handler.update();
+  power_manager.update();
+
+  // Enviar nivel de batería al móvil de forma global (independiente del estado)
+  // y con flanco instantáneo en la conexión para evitar el lag de 10 segundos.
+  static bool ble_was_connected = false;
+  static uint32_t last_battery_notify_ms = 0;
+  
+  ble_connected = ble_handler.isConnected();
+  battery_percent = power_manager.getBatteryPercent();
+  
+  if (ble_connected) {
+    if (!ble_was_connected || (now_ms - last_battery_notify_ms > 10000)) {
+      ble_was_connected = true;
+      last_battery_notify_ms = now_ms;
+      ble_handler.notifyBattery(battery_percent);
+    }
+  } else {
+    ble_was_connected = false;
+  }
+
+  led_controller.update(now_ms);
+  haptic.update(now_ms);
+
+  // ========================================================================
+  // READ INPUTS & SERIAL SIMULATOR
+  // ========================================================================
+
+  GestureType gesture = gesture_detector.getGesture();
+
+  // Notify app of gyro flick detection for live calibration feedback (0xFE =
+  // Gyro Flick)
+  if (gesture != GESTURE_NONE && ble_connected) {
+    ble_handler.notifyCalibStatus(0xFE, 0xFE);
+  }
+
+  if (simulated_gesture != GESTURE_NONE && state_machine.getCurrentState() != STATE_DEEP_SLEEP) {
     gesture = simulated_gesture;
     simulated_gesture = GESTURE_NONE; // Reset
   }
-
-  ble_connected = ble_handler.isConnected();
-  battery_percent = power_manager.getBatteryPercent();
 
   // Update battery overlay
   if (power_manager.isLowBattery()) {
@@ -448,8 +704,8 @@ void loop() {
 
 // Force deep sleep if critical battery (unless disabled for testing)
 #if !DEBUG_DISABLE_DEEP_SLEEP
-  if (power_manager.isCriticalBattery()) {
-    state_machine.transitionTo(STATE_DEEP_SLEEP);
+  if (power_manager.isCriticalBattery() && state_machine.getCurrentState() != STATE_DEEP_SLEEP && state_machine.getCurrentState() != STATE_BATTERY_DEAD_DISPLAY) {
+    state_machine.transitionTo(STATE_BATTERY_DEAD_DISPLAY);
   }
 #endif
 
@@ -458,15 +714,14 @@ void loop() {
   // ========================================================================
 
 #if IMU_WAKE_ENABLED
-  if (motion_detected_flag) {
-    motion_detected_flag = false;
-    Serial.println("[MOTION] Wake gesture detected (INT1 RISING)");
-    if (ble_connected) {
-      ble_handler.notifyCalibStatus(
-          0xFF, 0xFF); // 0xFF signifies manual motion detection
-    }
-  }
+  // Manual calibration logging block removed
 #endif
+
+  static State last_handled_state = STATE_DEEP_SLEEP;
+  if (last_handled_state == state_machine.getCurrentState()) {
+    state_machine.clearStateChanged();
+  }
+  last_handled_state = state_machine.getCurrentState();
 
   state_machine.update(now_ms);
 
@@ -520,6 +775,17 @@ void loop() {
     handleStateOTAMode();
     break;
 
+  case STATE_BATTERY_DEAD_DISPLAY:
+    if (state_machine.stateChanged()) {
+      led_controller.errorBattery();
+    }
+    // Timeout handled by state_machine (2s -> DEEP_SLEEP)
+    break;
+
+  case STATE_COMPASS_CALIBRATION:
+    handleStateCompassCalibration();
+    break;
+
   default:
     break;
   }
@@ -539,13 +805,34 @@ void loop() {
 // STATE HANDLERS
 // ============================================================================
 
+bool sleep_entry_done = false;
+
 void handleStateDeepSleep(GestureType gesture) {
   // If we just entered DEEP_SLEEP, configure IMU for Rise-to-Wake and clear
   // wake sources
-  if (state_machine.stateChanged()) {
+  // BUG-010: Peripheral shutdown runs ONCE on state entry, not every 10ms tick.
+  // Previously setPower(false) ran NeoPixel show() + delayMicroseconds(50) on
+  // every loop iteration, burning ~460µs/tick (~5% CPU) while "sleeping".
+  // Note: stateChanged() returns true on every tick in DEEP_SLEEP because
+  // state_machine.update() is never called (early-return path). The idempotency
+  // fix in setPower() and stopMotor() makes repeated calls free.
+  // 
+  // IMPORTANT: If adding new wake paths (e.g., BLE-triggered wake), ensure 
+  // sleep_entry_done is reset to false when exiting this handler.
+  // Additionally, because of the early-return pattern, state_machine.update() 
+  // is skipped during DEEP_SLEEP, meaning timer and low_battery_pulse logic 
+  // will not execute while sleeping.
+
+  if (!sleep_entry_done) {
+    sleep_entry_done = true;
     last_wake_source = WAKE_SOURCE_NONE;
     Serial.println("[POWER] Entering DEEP_SLEEP state. Configuring IMU for "
                    "Rise-to-Wake...");
+
+    // Power off peripherals on entry
+    led_controller.setPower(false); // idempotent after BUG-010 fix in setPower()
+    haptic.stopMotor();             // idempotent after BUG-010 fix in stopMotor()
+
 #if IMU_WAKE_ENABLED
     power_manager.setupIMUForRiseToWake();
 #endif
@@ -565,54 +852,71 @@ void handleStateDeepSleep(GestureType gesture) {
     }
   }
 
-  // Turn off all peripherals
-  led_controller.setPower(false);
-  haptic.stopMotor();
-
   // Wait for button tap or motion to wake (via interrupts)
-  if (last_wake_source != WAKE_SOURCE_NONE) {
+  int local_wake_source;
+  noInterrupts();
+  local_wake_source = last_wake_source;
+  interrupts();
+
+  if (local_wake_source != WAKE_SOURCE_NONE) {
     Serial.print("[POWER] Wake source detected: ");
-    Serial.println(last_wake_source == WAKE_SOURCE_MOTION ? "MOTION" : "TAP");
+    Serial.println(local_wake_source == WAKE_SOURCE_MOTION ? "MOTION" : "TAP");
 
     // Clear wake source and wake up
+    noInterrupts();
     last_wake_source = WAKE_SOURCE_NONE;
+    interrupts();
+    
+    sleep_entry_done = false;
     state_machine.transitionTo(STATE_WAKING_UP);
     return;
   }
 
-  // Backup: Software button tap check if interrupt didn't fire
-  if (gesture == GESTURE_TAP_SIMPLE) {
-    state_machine.transitionTo(STATE_WAKING_UP);
-    return;
-  }
-
-// Put CPU to sleep until next interrupt (unless disabled for testing)
-#if !DEBUG_DISABLE_DEEP_SLEEP
-  power_manager.enterDeepSleep();
-#else
-  delay(10); // Don't hog CPU in debug stay-awake loop
-#endif
+  // Put CPU to sleep until next interrupt (unless disabled for testing)
+  #if !DEBUG_DISABLE_DEEP_SLEEP
+    power_manager.enterDeepSleep();
+  #else
+    delay(10); // Don't hog CPU in debug stay-awake loop
+  #endif
 }
 
 void handleStateWakingUp() {
-  // Power on LED ring
-  led_controller.setPower(true);
+  if (state_machine.stateChanged()) {
+    sleep_entry_done = false;
+    // BUG-026: Clear sleeping flag so isAsleep() reflects reality.
+    power_manager.wakeFromSleep();
 
-  // Restore normal advertising interval if not connected
-  if (!ble_handler.isConnected()) {
-    ble_handler.setLowPowerAdvertising(false);
-  }
+    // Power on LED ring
+    led_controller.setPower(true);
 
-  // Power on compass magnetometer
-  compass.powerUp();
+    // Restore normal advertising interval if not connected
+    if (!ble_handler.isConnected()) {
+      ble_handler.setLowPowerAdvertising(false);
+    }
 
-  // Clear any leftover gestures
-  gesture_detector.reset();
+    // Power on compass magnetometer
+    compass.powerUp();
 
-  // Re-initialize LSM6DS3 for normal gesture detection
-  if (lsm6ds3_connected) {
-    Serial.println("[POWER] Waking up. Restoring IMU to normal mode...");
-    lsm6ds3.begin();
+    // Clear any leftover gestures
+    gesture_detector.reset();
+
+    // Re-initialize LSM6DS3 for normal gesture detection
+    if (lsm6ds3_connected) {
+      Serial.println("[POWER] Waking up. Restoring IMU to normal mode...");
+      lsm6ds3.begin();
+      delay(20); // Let IMU settle before reading gestures
+      
+      // INTEGRATION-002: Discard first sample which is often garbage after wake
+      lsm6ds3.readFloatAccelX();
+      lsm6ds3.readFloatAccelY();
+      lsm6ds3.readFloatAccelZ();
+      lsm6ds3.readFloatGyroX();
+      lsm6ds3.readFloatGyroY();
+      lsm6ds3.readFloatGyroZ();
+    }
+
+    // Note: Bit-bang GPIO is immune to the mbed Wire1 TWI driver bug, so we no
+    // longer need to re-initialize the compass here.
   }
 
   // If a haptic event woke the watch or arrived while sleeping, process it
@@ -638,20 +942,20 @@ void handleStateClockConnected(GestureType gesture, uint32_t now_ms) {
   if ((now_ms - last_time_update_ms) >= 33) {
     last_time_update_ms = now_ms;
 
-    // Synchronize epoch seconds and millis_part to eliminate second hand phase
-    // jumps
-    uint64_t total_ms;
-    if (time_synced) {
-      total_ms = (uint64_t)unix_base_ts * 1000 + (now_ms - millis_at_sync);
-    } else {
-      total_ms = now_ms;
-    }
+    // Recalcular la hora actual
+    uint64_t current_unix_ms = getRealEpochMs();
+    
+    int32_t local_tz;
+    noInterrupts();
+    local_tz = tz_offset_s;
+    interrupts();
 
-    uint32_t total_secs = total_ms / 1000;
+    uint32_t total_secs = (uint32_t)(current_unix_ms / 1000ULL) + local_tz;
+    
     uint8_t seconds = total_secs % 60;
     uint8_t minutes = (total_secs / 60) % 60;
     uint8_t hours = (total_secs / 3600) % 24;
-    uint16_t millis_part = total_ms % 1000;
+    uint16_t millis_part = (uint16_t)(current_unix_ms % 1000ULL);
 
     led_controller.updateClockTime(hours, minutes, seconds, millis_part);
     led_controller.showClock(true); // connected = white colors
@@ -660,22 +964,26 @@ void handleStateClockConnected(GestureType gesture, uint32_t now_ms) {
   // Handle gestures
   switch (gesture) {
   case GESTURE_TAP_SIMPLE:
-    // Reset timer (stay awake longer)
-    state_machine.resetTimer(TIMER_CLOCK_TIMEOUT_MS);
+    // Transition to RADAR_MODE (from clock)
+    state_machine.transitionTo(STATE_RADAR_MODE);
     break;
 
   case GESTURE_TAP_DOUBLE:
-    // Send haptic to pareja
+    // Ignored in clock mode (reset timer to stay awake)
+    state_machine.resetTimer((uint32_t)runtime_config.getConfig().clockTimeoutS * 1000);
+    break;
+
+  case GESTURE_TAP_TRIPLE:
+    // Send haptic to pareja (3 flicks)
     state_machine.transitionTo(STATE_HAPTIC_TX);
     break;
 
   case GESTURE_PRESS_SHORT:
-    // Toggle to RADAR_MODE
-    state_machine.transitionTo(STATE_RADAR_MODE);
+    // Ignored (button disabled)
     break;
 
   case GESTURE_PRESS_LONG:
-    // Force deep sleep
+    // Force deep sleep (via button if re-enabled)
     state_machine.transitionTo(STATE_DEEP_SLEEP);
     break;
 
@@ -687,13 +995,6 @@ void handleStateClockConnected(GestureType gesture, uint32_t now_ms) {
   if (!ble_handler.isConnected()) {
     state_machine.transitionTo(STATE_CLOCK_DISCONNECTED);
   }
-
-  // Notify battery periodically
-  static uint32_t battery_notify_last_ms = 0;
-  if ((now_ms - battery_notify_last_ms) > 10000) {
-    battery_notify_last_ms = now_ms;
-    ble_handler.notifyBattery(battery_percent);
-  }
 }
 
 void handleStateClockDisconnected(GestureType gesture, uint32_t now_ms) {
@@ -704,21 +1005,19 @@ void handleStateClockDisconnected(GestureType gesture, uint32_t now_ms) {
   if ((now_ms - last_time_update_ms) >= 500) {
     last_time_update_ms = now_ms;
 
-    // Synchronize epoch seconds and millis_part to eliminate second hand phase
-    // jumps
-    uint64_t total_ms;
-    if (time_synced) {
-      total_ms = (uint64_t)unix_base_ts * 1000 + (now_ms - millis_at_sync);
-    } else {
-      total_ms = now_ms;
-    }
+    uint64_t current_unix_ms = getRealEpochMs();
+    
+    int32_t local_tz;
+    noInterrupts();
+    local_tz = tz_offset_s;
+    interrupts();
 
-    uint32_t total_secs = total_ms / 1000;
+    uint32_t total_secs = (uint32_t)(current_unix_ms / 1000ULL) + local_tz;
+    
     uint8_t seconds = total_secs % 60;
     uint8_t minutes = (total_secs / 60) % 60;
     uint8_t hours = (total_secs / 3600) % 24;
-    // Set millis_part to 0 to disable smooth interpolation while disconnected
-    uint16_t millis_part = 0;
+    uint16_t millis_part = (uint16_t)(current_unix_ms % 1000ULL);
 
     led_controller.updateClockTime(hours, minutes, seconds, millis_part);
     led_controller.showClock(false); // disconnected = blue colors
@@ -727,7 +1026,7 @@ void handleStateClockDisconnected(GestureType gesture, uint32_t now_ms) {
   // Handle gestures (limited functionality without BLE)
   switch (gesture) {
   case GESTURE_TAP_SIMPLE:
-    state_machine.resetTimer(TIMER_CLOCK_TIMEOUT_MS);
+    state_machine.resetTimer((uint32_t)runtime_config.getConfig().clockTimeoutS * 1000);
     break;
 
   case GESTURE_TAP_DOUBLE:
@@ -779,7 +1078,10 @@ void handleStateRadarMode(GestureType gesture) {
 
   switch (gesture) {
   case GESTURE_TAP_SIMPLE:
-    state_machine.resetTimer(TIMER_RADAR_TIMEOUT_MS);
+    // Toggle back to CLOCK
+    radar_notified = false;
+    ble_handler.notifyRadarModeActive(false);
+    state_machine.transitionTo(ble_handler.isConnected() ? STATE_CLOCK_CONNECTED : STATE_CLOCK_DISCONNECTED);
     break;
 
   case GESTURE_TAP_DOUBLE:
@@ -789,11 +1091,15 @@ void handleStateRadarMode(GestureType gesture) {
     state_machine.transitionTo(STATE_DISTANCE_MODE);
     break;
 
-  case GESTURE_PRESS_SHORT:
-    // Toggle back to CLOCK
+  case GESTURE_TAP_TRIPLE:
+    // Send haptic to pareja (3 flicks)
     radar_notified = false;
     ble_handler.notifyRadarModeActive(false);
-    state_machine.transitionTo(STATE_CLOCK_CONNECTED);
+    state_machine.transitionTo(STATE_HAPTIC_TX);
+    break;
+
+  case GESTURE_PRESS_SHORT:
+    // Ignored (button disabled)
     break;
 
   case GESTURE_PRESS_LONG:
@@ -819,7 +1125,8 @@ void handleStateDistanceMode(GestureType gesture) {
 
   switch (gesture) {
   case GESTURE_TAP_SIMPLE:
-    state_machine.resetTimer(TIMER_RADAR_TIMEOUT_MS);
+    // Toggle back to CLOCK
+    state_machine.transitionTo(ble_handler.isConnected() ? STATE_CLOCK_CONNECTED : STATE_CLOCK_DISCONNECTED);
     break;
 
   case GESTURE_TAP_DOUBLE:
@@ -827,9 +1134,13 @@ void handleStateDistanceMode(GestureType gesture) {
     state_machine.transitionTo(STATE_RADAR_MODE);
     break;
 
+  case GESTURE_TAP_TRIPLE:
+    // Send haptic to pareja (3 flicks)
+    state_machine.transitionTo(STATE_HAPTIC_TX);
+    break;
+
   case GESTURE_PRESS_SHORT:
-    // Toggle back to CLOCK
-    state_machine.transitionTo(STATE_CLOCK_CONNECTED);
+    // Ignored (button disabled)
     break;
 
   case GESTURE_PRESS_LONG:
@@ -853,8 +1164,10 @@ void handleStateHapticTX() {
     if (runtime_config.getConfig().hapticPatternIndex ==
         1) {                                      // 1 = only partner
       haptic.playPattern(HAPTIC_PATTERN_BATTERY); // confirm with a short pulse
+      state_machine.resetTimer(haptic.getPatternLength(HAPTIC_PATTERN_BATTERY) + 500);
     } else {
       haptic.playPattern(HAPTIC_PATTERN_RX); // long vibration pattern
+      state_machine.resetTimer(haptic.getPatternLength(HAPTIC_PATTERN_RX) + 500);
     }
 
     uint8_t brightness_pct = runtime_config.getConfig().brightnessPercent;
@@ -864,12 +1177,6 @@ void handleStateHapticTX() {
     // Usar rosa (COLOR_HAPTIC_RX) escalado por brillo seguro
     led_controller.fillWithBrightness(COLOR_HAPTIC_RX, base_brightness);
     pattern_started = true;
-  }
-
-  // Return when haptic finishes
-  if (!haptic.isVibrating() && pattern_started) {
-    pattern_started = false;
-    state_machine.transitionTo(STATE_CLOCK_CONNECTED);
   }
 }
 
@@ -885,19 +1192,14 @@ void handleStateHapticRX(GestureType gesture) {
     haptic.playPattern(HAPTIC_PATTERN_RX);
     led_controller.animateHapticRX();
     pattern_started = true;
+    state_machine.resetTimer(haptic.getPatternLength(HAPTIC_PATTERN_RX) + 500);
   }
 
   // Tap to cancel
   if (gesture == GESTURE_TAP_SIMPLE) {
     haptic.stopPattern();
     pattern_started = false;
-    state_machine.transitionTo(STATE_CLOCK_CONNECTED);
-  }
-
-  // Auto-return when haptic finishes
-  if (!haptic.isVibrating() && pattern_started) {
-    pattern_started = false;
-    state_machine.transitionTo(STATE_CLOCK_CONNECTED);
+    state_machine.transitionTo(ble_handler.isConnected() ? STATE_CLOCK_CONNECTED : STATE_CLOCK_DISCONNECTED);
   }
 }
 
@@ -919,10 +1221,12 @@ void handleStateCalibration(GestureType gesture, uint32_t now_ms) {
 
   static bool calib_started = false;
   static uint8_t last_progress = 0xFF;
+  static bool success_shown = false;
 
   if (state_machine.stateChanged()) {
     calib_started = false;
     last_progress = 0xFF;
+    success_shown = false;
   }
 
   uint8_t brightness_pct = runtime_config.getConfig().brightnessPercent;
@@ -955,47 +1259,68 @@ void handleStateCalibration(GestureType gesture, uint32_t now_ms) {
 
   // Check if calibration finished
   if (!imu_calibrator.isActive()) {
-    uint8_t threshold = imu_calibrator.getThreshold();
+    if (!success_shown) {
+      uint8_t threshold = imu_calibrator.getThreshold();
 
-    // Save to flash
-    eeprom_manager.saveCalibration(threshold);
+      // Save to flash
+      eeprom_manager.saveCalibration(threshold);
 
-    // Update IMU with new threshold
-    power_manager.updateIMUThreshold(threshold);
+      // Update IMU with new threshold
+      power_manager.updateIMUThreshold(threshold);
 
-    // Notify app
-    ble_handler.notifyCalibThreshold(threshold);
+      char json_buf[32];
+      snprintf(json_buf, sizeof(json_buf), "{\"wt\":%d}", threshold);
+      runtime_config.updateFromJson(json_buf);
 
-    // Flash green success
-    led_controller.fillWithBrightness(COLOR_SUCCESS, base_brightness);
-    haptic.playPattern(HAPTIC_PATTERN_TX);
+      // Notify app
+      ble_handler.notifyCalibThreshold(threshold);
 
-    // Return to clock
-    calib_started = false;
-    state_machine.transitionTo(STATE_CLOCK_CONNECTED);
+      // Flash green success
+      led_controller.fillWithBrightness(COLOR_SUCCESS, base_brightness);
+      haptic.playPattern(HAPTIC_PATTERN_TX);
+      
+      success_shown = true;
+      state_machine.resetTimer(1000);
+    } else if (state_machine.isTimerExpired()) {
+      calib_started = false;
+      state_machine.transitionTo(ble_handler.isConnected() ? STATE_CLOCK_CONNECTED : STATE_CLOCK_DISCONNECTED);
+    }
   }
 
   // Tap to cancel
   if (gesture == GESTURE_TAP_SIMPLE) {
     imu_calibrator.cancel();
     calib_started = false;
-    state_machine.transitionTo(STATE_CLOCK_CONNECTED);
+    state_machine.transitionTo(ble_handler.isConnected() ? STATE_CLOCK_CONNECTED : STATE_CLOCK_DISCONNECTED);
   }
 }
 
 void handleStateOTAMode() {
-  // Show LED progress animation while preparing
+  // BUG-007: Reset static locals on state entry.
+  // ota_enter_time is a static local that was never reset. On a second OTA
+  // request after a cancellation, it still held the old millis() value,
+  // so (millis() - ota_enter_time) was immediately > 1500ms, causing an
+  // instant silent reboot with no LED/haptic confirmation.
   static uint8_t ota_progress = 0;
+  static uint32_t ota_enter_time = 0;
+  static bool ota_timer_started = false;
+
+  if (state_machine.stateChanged()) {
+    ota_timer_started = false;
+    ota_enter_time = 0;
+    ota_progress = 0;
+  }
+
   led_controller.updateOTAProgress(ota_progress);
 
-  // Wait 1 second for the user to see the LEDs, then reboot into DFU
-  static uint32_t ota_enter_time = 0;
-  if (ota_enter_time == 0) {
+  // Wait 1.5s for the user to see LEDs and feel haptic, then reboot into DFU
+  if (!ota_timer_started) {
     ota_enter_time = millis();
+    ota_timer_started = true;
     haptic.playPattern(HAPTIC_PATTERN_TX); // Buzz to confirm
   }
 
-  if ((millis() - ota_enter_time) > 1500) {
+  if (ota_timer_started && (millis() - ota_enter_time) > 1500) {
     // Enter DFU bootloader mode
     // The Adafruit nRF52 bootloader checks GPREGRET on boot:
     // 0xA8 = enter DFU mode (BLE OTA)
@@ -1014,26 +1339,27 @@ void handleStateOTAMode() {
 
 void onBLEHapticRX() {
   // Mobile sent a haptic command
-  if (state_machine.getCurrentState() != STATE_OTA_MODE) {
-    if (state_machine.getCurrentState() == STATE_DEEP_SLEEP) {
-      // Waking up from sleep to play haptic
-      haptic_rx_pending = true;
-      state_machine.transitionTo(STATE_WAKING_UP);
-    } else {
-      state_machine.transitionTo(STATE_HAPTIC_RX);
-    }
-  }
+  haptic_rx_pending = true;
 }
 
-void onBLEBearingUpdate(float bearing) { current_bearing = bearing; }
+// BUG-003: float and uint32_t writes are single instructions on Cortex-M4 when
+// aligned, but noInterrupts() guards future-proof against compiler reordering
+// and ensure correctness if these types ever change.
+void onBLEBearingUpdate(float bearing) {
+  noInterrupts();
+  current_bearing = bearing;
+  interrupts();
+}
 
-void onBLEDistanceUpdate(uint32_t distance_m) { current_distance = distance_m; }
+void onBLEDistanceUpdate(uint32_t distance_m) {
+  noInterrupts();
+  current_distance = distance_m;
+  interrupts();
+}
 
 void onBLECalibStart() {
   // App requested start calibration
-  if (state_machine.getCurrentState() != STATE_DEEP_SLEEP) {
-    state_machine.transitionTo(STATE_CALIBRATION_MODE);
-  }
+  calib_start_pending = true;
 }
 
 void onBLECalibEnd() {
@@ -1043,9 +1369,22 @@ void onBLECalibEnd() {
 }
 
 void onBLECalibCancel() {
-  // App requested cancel
-  imu_calibrator.cancel();
-  state_machine.transitionTo(STATE_CLOCK_CONNECTED);
+  // BUG-006: Do NOT touch state machine or calibrator here.
+  // This runs in BLE ISR context. state_machine.transitionTo() writes three
+  // non-atomic variables (current_state, previous_state, state_changed).
+  // Defer to loop() via flag where it is safe to run.
+  calib_cancel_pending = true;
+}
+
+void onBLECompassCalibStart() {
+  // ISR context: Flag for main loop execution
+  ble_calib_start_pending = true;
+}
+
+void onBLEThresholdWrite(uint8_t threshold) {
+  // ISR context: Flag for main loop execution
+  ble_new_threshold = threshold;
+  ble_threshold_write_pending = true;
 }
 
 void onBLEConfigUpdate() {
@@ -1058,41 +1397,43 @@ void onBLEConfigUpdate() {
 void onBLEOTARequest() {
   // App requested OTA update
   Serial.println("[OTA] OTA update requested from app");
-  state_machine.transitionTo(STATE_OTA_MODE);
+  ota_request_pending = true;
 }
 
-void onBLETimeSync(uint32_t unix_ts) {
-  // App sent current Unix timestamp → store sync point
-  unix_base_ts = unix_ts;
+void onBLETimeSync(uint32_t unix_ts, int32_t tz_offset) {
+  // BUG-003: All variables must be written atomically.
+  // The main loop reads time_synced + unix_base_ts + millis_at_sync together.
+  // Without the guard, loop() can see time_synced=true but stale millis_at_sync,
+  // computing a wrong epoch for one tick.
+  noInterrupts();
+  unix_base_ts   = unix_ts;
+  tz_offset_s    = tz_offset;
   millis_at_sync = millis();
-  time_synced = true;
+  time_synced    = true;
+  interrupts();
 
-  // Log human-readable time (UTC)
-  uint8_t secs = unix_ts % 60;
-  uint8_t mins = (unix_ts / 60) % 60;
-  uint8_t hrs = (unix_ts / 3600) % 24;
-  Serial.print("[TIME] Clock synced — UTC: ");
-  if (hrs < 10)
-    Serial.print('0');
-  Serial.print(hrs);
+  // Log human-readable time (UTC) — outside critical section, Serial is slow
+  uint32_t local_secs = unix_ts + tz_offset;
+  uint8_t local_hrs = (local_secs / 3600) % 24;
+  uint8_t local_mins = (local_secs / 60) % 60;
+  uint8_t local_secs_remainder = local_secs % 60;
+  Serial.print("[TIME] Clock synced — Local Time: ");
+  if (local_hrs  < 10) Serial.print('0');
+  Serial.print(local_hrs);
   Serial.print(':');
-  if (mins < 10)
-    Serial.print('0');
-  Serial.print(mins);
+  if (local_mins < 10) Serial.print('0');
+  Serial.print(local_mins);
   Serial.print(':');
-  if (secs < 10)
-    Serial.print('0');
-  Serial.println(secs);
+  if (local_secs_remainder < 10) Serial.print('0');
+  Serial.print(local_secs_remainder);
+  Serial.print(" (TZ offset: ");
+  Serial.print(tz_offset);
+  Serial.println("s)");
 }
 
 // ============================================================================
 // INTERRUPT HANDLERS
 // ============================================================================
-
-void onButtonWakeup() {
-  // Interrupt from button (D8) during deep sleep
-  last_wake_source = WAKE_SOURCE_TAP;
-}
 
 void onMotionWakeup() {
   // NEW: Interrupt from IMU (INT1) during deep sleep (rise-to-wake)
@@ -1133,7 +1474,7 @@ void debugPrintStatus() {
   Serial.print("[INPUTS] Button: ");
   Serial.print(btn_pressed ? "✓ PRESSED" : "- RELEASED");
   Serial.print(" | Last Gesture: ");
-  GestureType last_gesture = gesture_detector.getGesture();
+  GestureType last_gesture = gesture_detector.getDetectedGesture();
   switch (last_gesture) {
   case GESTURE_NONE:
     Serial.print("NONE");
@@ -1318,3 +1659,15 @@ void debugPrintStatus() {
 // ============================================================================
 // END OF FIRMWARE
 // ============================================================================
+
+void handleStateCompassCalibration() {
+  if (!compass.isCalibrating()) {
+    state_machine.transitionTo(ble_handler.isConnected() ? STATE_CLOCK_CONNECTED : STATE_CLOCK_DISCONNECTED);
+    return;
+  }
+  // Chasing LED animation logic
+  led_controller.clear();
+  led_controller.setLEDBrightness((millis() / 100) % LED_COUNT, COLOR_INFO, 255);
+  led_controller.show();
+}
+

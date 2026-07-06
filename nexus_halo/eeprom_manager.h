@@ -12,10 +12,10 @@
 // Stores calibration data (wake-on-motion threshold) in nRF52840 internal flash
 
 struct CalibrationData {
-  uint16_t magic;       // Magic number to verify valid data
-  uint8_t threshold;    // WAKE_UP_THS register value (0x00-0xFF)
-  uint32_t timestamp;   // When calibration was last saved
-  uint8_t checksum;     // Simple checksum for integrity
+  uint32_t timestamp;   // When calibration was last saved (4 bytes)
+  uint16_t magic;       // Magic number to verify valid data (2 bytes)
+  uint8_t threshold;    // WAKE_UP_THS register value (1 byte)
+  uint8_t checksum;     // Simple checksum for integrity (1 byte)
 };
 
 class EEPROMManager {

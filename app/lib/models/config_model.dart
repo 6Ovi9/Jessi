@@ -75,31 +75,48 @@ class WatchConfig {
     return WatchConfig(userId: userId);
   }
 
+  static String _normalizeHapticPattern(String? rawValue) {
+    final normalized = rawValue?.trim().toLowerCase();
+    switch (normalized) {
+      case 'partner':
+      case '1':
+        return 'partner';
+      case 'both':
+      case 'default':
+      case 'all':
+      case '0':
+      case null:
+      case '':
+      default:
+        return 'both';
+    }
+  }
+
   /// Crear desde JSON de Supabase
   factory WatchConfig.fromJson(Map<String, dynamic> json) {
     return WatchConfig(
       userId: json['user_id'] as String,
-      clockTimeoutS: json['clock_timeout_s'] as int? ?? 5,
-      sleepTimeoutS: json['sleep_timeout_s'] as int? ?? 5,
+      clockTimeoutS: (json['clock_timeout_s'] as num?)?.toInt() ?? 5,
+      sleepTimeoutS: (json['sleep_timeout_s'] as num?)?.toInt() ?? 5,
       colorHoursConnected: json['color_hours_connected'] as String? ?? 'FFFFDCB4',
       colorMinutesConnected: json['color_minutes_connected'] as String? ?? 'FFFFF5F0',
       colorSecondsConnected: json['color_seconds_connected'] as String? ?? 'FFC8DCFF',
       colorHoursDisc: json['color_hours_disc'] as String? ?? 'FF001478',
       colorMinutesDisc: json['color_minutes_disc'] as String? ?? 'FF003CC8',
       colorSecondsDisc: json['color_seconds_disc'] as String? ?? 'FF2864FF',
-      brightnessPercent: json['brightness_percent'] as int? ?? 60,
-      lowBatteryThreshold: json['low_battery_threshold'] as int? ?? 15,
+      brightnessPercent: (json['brightness_percent'] as num?)?.toInt() ?? 60,
+      lowBatteryThreshold: (json['low_battery_threshold'] as num?)?.toInt() ?? 15,
       logarithmicBrightness: json['logarithmic_brightness'] as bool? ?? true,
-      hapticPattern: json['haptic_pattern'] as String? ?? 'both',
+      hapticPattern: _normalizeHapticPattern(json['haptic_pattern'] as String?),
 
-      gpsIntervalPrecisionS: json['gps_interval_precision_s'] as int? ?? 3,
-      gpsIntervalNearS: json['gps_interval_near_s'] as int? ?? 60,
-      gpsIntervalFarS: json['gps_interval_far_s'] as int? ?? 180,
-      gpsIntervalRemoteMinS: json['gps_interval_remote_min_s'] as int? ?? 300,
-      gpsIntervalRemoteMaxS: json['gps_interval_remote_max_s'] as int? ?? 600,
-      wakeThreshold: json['wake_threshold'] as int? ?? 2,
-      gyroThreshold: json['gyro_threshold'] as int? ?? 260,
-      doubleFlickWindowMs: json['double_flick_window_ms'] as int? ?? 800,
+      gpsIntervalPrecisionS: (json['gps_interval_precision_s'] as num?)?.toInt() ?? 3,
+      gpsIntervalNearS: (json['gps_interval_near_s'] as num?)?.toInt() ?? 60,
+      gpsIntervalFarS: (json['gps_interval_far_s'] as num?)?.toInt() ?? 180,
+      gpsIntervalRemoteMinS: (json['gps_interval_remote_min_s'] as num?)?.toInt() ?? 300,
+      gpsIntervalRemoteMaxS: (json['gps_interval_remote_max_s'] as num?)?.toInt() ?? 600,
+      wakeThreshold: (json['wake_threshold'] as num?)?.toInt() ?? 2,
+      gyroThreshold: (json['gyro_threshold'] as num?)?.toInt() ?? 260,
+      doubleFlickWindowMs: (json['double_flick_window_ms'] as num?)?.toInt() ?? 800,
     );
   }
 
@@ -154,7 +171,16 @@ class WatchConfig {
 
   /// Parsear un color hex AARRGGBB a Color de Flutter
   static Color parseColor(String hexColor) {
-    return Color(int.parse(hexColor, radix: 16));
+    String hex = hexColor.trim().replaceAll('#', '');
+    if (hex.length == 6) hex = 'FF$hex'; // Assume opaque if no alpha
+    
+    if (hex.length == 8) {
+      final val = int.tryParse(hex, radix: 16);
+      if (val != null) {
+        return Color(val);
+      }
+    }
+    return const Color(0xFFFFFFFF); // Fallback en caso de error
   }
 
   /// Color de Flutter para cada aguja del reloj

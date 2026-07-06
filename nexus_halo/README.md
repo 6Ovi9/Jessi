@@ -1,10 +1,10 @@
-# Nexus Halo Firmware v1.2
+# Nexus Halo Firmware v2.2
 
 **Firmware para Seeed Studio XIAO nRF52840 Sense**
 
 Smartwatch parejas con anillo LED de 12 posiciones, brújula, detección de gestos, vibración háptica, comunicación BLE, y calibración automática de rise-to-wake.
 
-**Changes en v1.2**: Rise-to-wake con IMU motion detection + calibración automática por gestos + persistencia en flash.
+**Changes en v2.2**: Direct-register PWM driver for SK6812 LEDs (polarity fix, correct timing, DECODER fix), snappy clock display with dual-LED minute hand, sleep timeout overflow fix.
 
 ---
 
@@ -12,20 +12,20 @@ Smartwatch parejas con anillo LED de 12 posiciones, brújula, detección de gest
 
 ```
 firmware/
-├── nexus_halo.ino              # Main firmware (Arduino sketch) — v1.2
-├── config.h                       # Global configuration & constants — v1.2
-├── state_machine.h/.cpp           # Máquina de estados (11 estados) — v1.2
+├── nexus_halo.ino              # Main firmware (Arduino sketch) — v2.2
+├── config.h                       # Global configuration & constants — v2.2
+├── state_machine.h/.cpp           # Máquina de estados (11 estados) — v2.2
 ├── gesture.h/.cpp                 # Detección de gestos (TTP223)
-├── led_controller.h/.cpp          # Control anillo SK6812 (12 LEDs)
+├── led_controller.h/.cpp          # Control anillo SK6812 (direct PWM) — v2.2
 ├── compass.h/.cpp                 # LIS3MDL magnetómetro (brújula)
 ├── haptic.h/.cpp                  # Motor vibración (patrones)
-├── ble_handler.h/.cpp             # Comunicación BLE + calibración — v1.2
-├── power.h/.cpp                   # Power management + rise-to-wake — v1.2
-├── imu_calibrator.h/.cpp          # NEW: Gesture-based threshold calc
-├── eeprom_manager.h/.cpp          # NEW: Flash persistence + CRC
-├── CHANGELOG_v1.2.md              # NEW: Detailed v1.2 changes
-├── COMPILATION_VALIDATION.md      # NEW: Pre-compile checklist
-└── README.md                      # Esta guía — v1.2
+├── ble_handler.h/.cpp             # Comunicación BLE + calibración
+├── power.h/.cpp                   # Power management + rise-to-wake
+├── imu_calibrator.h/.cpp          # Gesture-based threshold calc
+├── eeprom_manager.h/.cpp          # Flash persistence + CRC
+├── CHANGELOG_v2.2.md              # Detailed v2.2 changes
+├── COMPILATION_VALIDATION.md      # Pre-compile checklist
+└── README.md                      # Esta guía — v2.2
 ```
 
 ---
@@ -34,8 +34,8 @@ firmware/
 
 | Componente | Modelo | Pin | Protocolo |
 |---|---|---|---|
-| Microcontrolador | Seeed XIAO nRF52840 Sense | — | BLE 5.0 + LSM6DS3 IMU |
-| LEDs | 12× SK6812-MINI-E (RGB+W) | D7 (datos) | NeoPixel |
+| Microcontrolador | Seeed XIAO nRF52840 Sense | — | BLE 5.4 + LSM6DS3 IMU |
+| LEDs | 12× SK6812-MINI-E (RGB) | D7 (datos) | NeoPixel |
 | Botón táctil | TTP223 | D8 | Desactivado (Hardware/Firmware) |
 | Motor vibración | Motor + MOSFET | D9 | PWM |
 | Magnetómetro | LIS3MDL | D4/D5 (I2C) | I2C custom |
@@ -248,7 +248,7 @@ Lee `COMPILATION_VALIDATION.md` para una checklist de 11 ítems antes de compila
 2. **Abre Serial Monitor** (115200 baud)
 3. **Observa los logs**:
    ```
-   [SETUP] Nexus Halo Firmware v1.2
+   [SETUP] Nexus Halo Firmware v1.3
    [SETUP] Initializing...
    [SETUP] Initializing EEPROM...
    [SETUP] Powering down internal sensors...

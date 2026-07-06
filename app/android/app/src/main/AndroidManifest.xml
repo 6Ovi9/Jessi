@@ -102,7 +102,7 @@
         <!-- Boot receiver — reiniciar el servicio tras reboot -->
         <receiver
             android:name="com.pravera.flutter_foreground_task.receiver.BootReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>

@@ -26,7 +26,8 @@ El reloj cuenta con una corona de 12 LEDs direccionables, brújula magnética, b
 El repositorio está organizado de la siguiente manera:
 
 *   [Docs/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs): Documentación de especificación técnica completa e historial de tareas.
-    *   [description_v_1_2.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs/description_v_1_2.md): Especificación técnica de referencia (versión 1.2).
+    *   [CHANGELOG.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs/CHANGELOG.md): Registro histórico de cambios y versiones (Actualizado a v2.1.0).
+    *   [description_v_2_1.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs/description_v_2_1.md): Especificación técnica de referencia (versión 2.1.0).
     *   [tasks.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs/tasks.md): Registro de correcciones y estado de tareas.
 *   [nexus_halo/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/nexus_halo): Firmware completo en C++ para Arduino IDE compatible con **Seeed Studio XIAO nRF52840 Sense**.
 *   [app/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/app): Aplicación de acompañamiento desarrollada en **Flutter** para Android.
@@ -40,7 +41,7 @@ El repositorio está organizado de la siguiente manera:
 
 ---
 
-## 🟢 1. Firmware (`nexus_halo`) v1.2+
+## 🟢 1. Firmware (`nexus_halo`) v2.1.0+
 
 El código fuente del reloj está escrito para el chip **Seeed Studio XIAO nRF52840 Sense**. El firmware implementa una máquina de estados finita (FSM) no bloqueante con 12 estados diferentes y optimizaciones avanzadas de bajo consumo.
 
@@ -48,16 +49,14 @@ El código fuente del reloj está escrito para el chip **Seeed Studio XIAO nRF52
 
 | Componente | Línea/Chip | Pin XIAO | Notas / Tipo de Señal |
 | :--- | :--- | :--- | :--- |
-| **Anillo LED** | 12× SK6812-MINI-E (RGB+W) | `D7` | Datos de un solo cable (NeoPixel). LED 0 a las 12h. |
-| **Botón Táctil** | TTP223 | `D8` | Entrada digital (Desactivada por hardware/firmware debido a ruido). |
+| **Anillo LED** | 12× SK6812-MINI-E (RGB) | `D7` | Datos de un solo cable (NeoPixel). LED 0 a las 12h. |
 | **Motor Vibración** | Driver MOSFET | `D9` | Salida digital (PWM para regular intensidad). |
 | **Magnetómetro** | LIS3MDL (Brújula) | `D4` (SDA) / `D5` (SCL) | Bus I2C personalizado. |
 | **IMU (Integrado)** | LSM6DS3TR-C | Interno (`P0.11`) | Interrupción INT1 mapeada para Wake-on-Motion. |
 
 ### ⚡ Gestión de Energía y Despertar mediante Levantar Muñeca (`Rise-to-Wake`)
-En la versión v1.2, el reloj se despierta del modo `DEEP_SLEEP` únicamente a través de la siguiente fuente de movimiento:
-1.  **Giro/Levantamiento de Muñeca (`Rise-to-Wake`):** Sensor de movimiento IMU LSM6DS3.
-    *   *Nota sobre el botón táctil:* El botón capacitivo (`D8`) está **desconectado e inactivo** en el firmware debido a interferencias de ruido dieléctrico en la PCB física.
+En la versión v2.1.0, el reloj se despierta del modo `DEEP_SLEEP` únicamente a través de la siguiente fuente de movimiento:
+1.  **Giro/Levantamiento de Muñeca (`Rise-to-Wake`):** Sensor de movimiento IMU LSM6DS3. (Este dispositivo no utiliza botón físico; todo el control se realiza mediante el giroscopio y el acelerómetro).
     *   *Trade-off de batería:* El giroscopio y el micrófono interno PDM se apagan por completo. El acelerómetro se mantiene encendido en modo de ultra bajo consumo a **26 Hz** para detectar el movimiento de giro. Esto eleva el consumo en reposo de ~8µA a ~30–35µA, reduciendo la autonomía calculada con una batería de 140mAh de **38 días a 32 días** en espera (un precio insignificante para esta funcionalidad).
     *   *Calibración Inteligente:* El reloj incluye un sistema de calibración adaptativa. Cuando entra en modo calibración mediante la app BLE, pide al usuario hacer 5 levantamientos de muñeca seguidos. Guarda el umbral ideal (con un 80% de margen de seguridad) en la memoria Flash persistente del nRF52840 para evitar falsos positivos.
 
@@ -197,7 +196,7 @@ En la versión física actual de la PCB, se descubrió un problema de impedancia
 ### Transiciones de Estados y Gestos (Giro de Muñeca)
 
 > [!WARNING]
-> El botón táctil capacitivo físico (`TTP223` / Pin `D8`) está **desactivado por firmware** debido a fallas de diseño de hardware (ruido dieléctrico que bloquea el pin en HIGH). En su lugar, el reloj utiliza el giroscopio para detectar giros de muñeca rápidos (*Wrist Flicks*) y el acelerómetro para el despertado automático.
+> Este dispositivo NO utiliza botón táctil capacitivo físico (`TTP223`). Todo el control de la interfaz se realiza exclusivamente mediante el giroscopio para detectar giros de muñeca rápidos (*Wrist Flicks*) y el acelerómetro para el despertado automático.
 
 #### Mapeo de Acciones y Modos
 
@@ -232,7 +231,7 @@ flowchart TD
     A[1. Levantar Servidor Supabase en Docker] --> B[2. Activar Tailscale en Servidor y Móviles]
     B --> C[3. Configurar IP en Flutter App y Compilar APK]
     C --> D[4. Soldar puentes I2C en la PCB]
-    D --> E[5. Cargar Firmware v1.2 en Seeed Studio XIAO]
+    D --> E[5. Cargar Firmware v2.3.0 en Seeed Studio XIAO]
     E --> F[6. Iniciar App, Emparejar por BLE y Calibrar IMU]
 ```
 

@@ -37,12 +37,15 @@ public:
   
   // Check if motor is currently vibrating
   bool isVibrating() const { return vibrating; }
+  bool isPatternActive() const { return pattern_active; }
   
   // Update function for non-blocking pattern playback
   void update(uint32_t now_ms);
   
   // Interrupt current pattern and stop
   void stopPattern();
+
+  uint32_t getPatternLength(HapticPattern pattern) const;
 
 private:
   int pin_motor;
@@ -51,9 +54,9 @@ private:
   // Pattern playback state
   HapticPattern current_pattern;
   uint32_t pattern_start_ms;
-  uint32_t step_start_ms;
-  uint32_t current_step;
   bool pattern_active;
+  HapticPattern queued_pattern = HAPTIC_PATTERN_NONE;
+  size_t _getPatternSize(HapticPattern pattern) const;
   
   // Pattern definitions
   static const VibrationStep PATTERN_RX[];
@@ -62,7 +65,6 @@ private:
   static const VibrationStep PATTERN_ERROR[];
   
   // Helper methods
-  uint32_t _getPatternLength(HapticPattern pattern) const;
   const VibrationStep* _getPattern(HapticPattern pattern) const;
 };
 

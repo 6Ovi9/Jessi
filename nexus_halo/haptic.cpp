@@ -31,45 +31,48 @@ HapticController::HapticController()
     vibrating(false),
     current_pattern(HAPTIC_PATTERN_NONE),
     pattern_start_ms(0),
-    step_start_ms(0),
-    current_step(0),
     pattern_active(false)
 {
 }
 
 void HapticController::begin() {
+  digitalWrite(pin_motor, LOW); // Mitigate floating gate before init
   pinMode(pin_motor, OUTPUT);
   digitalWrite(pin_motor, LOW);
+  analogWrite(pin_motor, 0);
   vibrating = false;
+  pattern_active = false;
 }
 
 void HapticController::playPattern(HapticPattern pattern) {
+  if (pattern_active) {
+    queued_pattern = pattern;
+    return;
+  }
+  stopMotor();
   current_pattern = pattern;
   pattern_start_ms = millis();
-  step_start_ms = pattern_start_ms;
-  current_step = 0;
   pattern_active = true;
   vibrating = false;
   
-  // Start first step if it has a duration
-  const VibrationStep* p = _getPattern(pattern);
-  if (p && p[0].on_ms > 0) {
-    setMotor(255);  // Full intensity
-    vibrating = true;
-  }
+
 }
 
 void HapticController::setMotor(uint8_t intensity) {
-  vibrating = (intensity > 0);
-  
-  // For now, simple on/off; PWM could be implemented
-  digitalWrite(pin_motor, vibrating ? HIGH : LOW);
+  bool new_vibrating = (intensity > 0);
+  if (new_vibrating != vibrating) {
+    vibrating = new_vibrating;
+    // For now, simple on/off; PWM could be implemented
+  }
+  analogWrite(pin_motor, intensity);
 }
 
 void HapticController::stopMotor() {
+  pattern_active = false;
+  if (!vibrating) return;
+  analogWrite(pin_motor, 0);
   digitalWrite(pin_motor, LOW);
   vibrating = false;
-  pattern_active = false;
 }
 
 void HapticController::update(uint32_t now_ms) {
@@ -81,42 +84,34 @@ void HapticController::update(uint32_t now_ms) {
     return;
   }
   
-  uint32_t elapsed_in_step = now_ms - step_start_ms;
+  uint32_t elapsed_total = now_ms - pattern_start_ms;
+  uint32_t accum = 0;
   
-  // Check if we're in the ON phase or OFF phase
-  VibrationStep current = pattern[current_step];
-  
-  if (current.on_ms == 0 && current.off_ms == 0) {
-    // End of pattern
-    stopMotor();
-    return;
-  }
-  
-  // Determine if we should be vibrating
-  bool should_vibrate = (elapsed_in_step < current.on_ms);
-  
-  // If we've completed this step, move to next
-  uint32_t step_total = current.on_ms + current.off_ms;
-  if (elapsed_in_step >= step_total) {
-    current_step++;
-    step_start_ms = now_ms;
-    
-    // Check for end of pattern
-    VibrationStep next = pattern[current_step];
-    if (next.on_ms == 0 && next.off_ms == 0) {
+  size_t max_steps = _getPatternSize(current_pattern);
+  for (size_t i = 0; i < max_steps; i++) {
+    VibrationStep step = pattern[i];
+    if (step.on_ms == 0 && step.off_ms == 0) {
       stopMotor();
+      pattern_active = false;
+      if (queued_pattern != HAPTIC_PATTERN_NONE) {
+        HapticPattern next = queued_pattern;
+        queued_pattern = HAPTIC_PATTERN_NONE;
+        playPattern(next);
+      }
       return;
     }
     
-    should_vibrate = (next.on_ms > 0);
+    uint32_t step_len = (uint32_t)step.on_ms + step.off_ms;
+    if (elapsed_total < accum + step_len) {
+      bool should_vibrate = (elapsed_total < accum + step.on_ms);
+      setMotor(should_vibrate ? 255 : 0);
+      return;
+    }
+    accum += step_len;
   }
-  
-  // Apply motor state
-  if (should_vibrate) {
-    setMotor(255);
-  } else {
-    setMotor(0);
-  }
+  // If we exceeded max steps without hitting terminator
+  stopMotor();
+  pattern_active = false;
 }
 
 void HapticController::stopPattern() {
@@ -124,16 +119,27 @@ void HapticController::stopPattern() {
   stopMotor();
 }
 
-uint32_t HapticController::_getPatternLength(HapticPattern pattern) const {
+uint32_t HapticController::getPatternLength(HapticPattern pattern) const {
   const VibrationStep* p = _getPattern(pattern);
   if (!p) return 0;
   
   uint32_t total = 0;
-  while (p->on_ms > 0 || p->off_ms > 0) {
-    total += p->on_ms + p->off_ms;
-    p++;
+  size_t max_steps = _getPatternSize(pattern);
+  for (size_t i = 0; i < max_steps; i++) {
+    if (p[i].on_ms == 0 && p[i].off_ms == 0) break;
+    total += (uint32_t)p[i].on_ms + p[i].off_ms;
   }
   return total;
+}
+
+size_t HapticController::_getPatternSize(HapticPattern pattern) const {
+  switch (pattern) {
+    case HAPTIC_PATTERN_RX:      return sizeof(PATTERN_RX)/sizeof(VibrationStep);
+    case HAPTIC_PATTERN_TX:      return sizeof(PATTERN_TX)/sizeof(VibrationStep);
+    case HAPTIC_PATTERN_BATTERY: return sizeof(PATTERN_BATTERY)/sizeof(VibrationStep);
+    case HAPTIC_PATTERN_ERROR:   return sizeof(PATTERN_ERROR)/sizeof(VibrationStep);
+    default:                     return 0;
+  }
 }
 
 const VibrationStep* HapticController::_getPattern(HapticPattern pattern) const {

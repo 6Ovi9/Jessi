@@ -20,6 +20,7 @@
 // ============================================================================
 
 #define LED_COUNT            12    // 12× SK6812 MINI-E (RGB+W)
+#define USE_NEOPIXEL_DMA     1     // Required to prevent BLE disconnections
 #define LED_BRIGHTNESS_MAX   255   // Max PWM value
 #define LED_CLOCK_BRIGHTNESS 30    // Default brightness % for CLOCK mode (will be applied as 0-255)
 
@@ -47,7 +48,7 @@
 #define TIMER_CLOCK_TIMEOUT_MS        10000   // CLOCK → DEEP_SLEEP timeout (default)
 #define TIMER_RADAR_TIMEOUT_MS        5000    // RADAR/DISTANCE → CLOCK timeout
 #define TIMER_HAPTIC_RX_TIMEOUT_MS    3000    // HAPTIC_RX → previous state (safety)
-#define TIMER_WAKING_UP_MS            200     // WAKING_UP transitional time
+
 #define TIMER_LOW_BATTERY_PULSE_MS    30000   // 30s between battery warning pulses
 #define TIMER_ERROR_NO_GPS_MS         2000    // ERROR_NO_GPS display duration
 
@@ -58,6 +59,8 @@
 #define DEBUG_BYPASS_BATTERY_CHECK     0      // 1 = bypass battery checks for USB testing, 0 = normal operation
 #define DEBUG_DISABLE_DEEP_SLEEP       0      // 1 = stay awake for testing, 0 = normal sleep behavior
 #define DEBUG_VERBOSE_OUTPUT           1      // 1 = detailed debug logs, 0 = minimal output
+
+#define BUTTON_WAKE_ENABLED  0  // Set to 1 when hardware button is connected and button gesture code should compile
 
 #define LOW_BATTERY_THRESHOLD_PERCENT  15     // % threshold to show LOW_BATTERY overlay
 #define CRITICAL_BATTERY_PERCENT       5      // % threshold to force DEEP_SLEEP
@@ -75,6 +78,10 @@
 
 // Custom BLE service UUID (128-bit)
 // Format: 12345678-1234-5678-1234-56789ABCDEF0 (example)
+// WARNING: BUG-014: These macros are UNUSED. The actual UUID is defined inline in ble_handler.cpp.
+// The characteristic UUIDs in ble_handler.cpp overlap with Bluetooth SIG assigned numbers
+// (0x2A58 etc. = Environmental Sensing). iOS CoreBluetooth may refuse to discover these.
+// If iOS compatibility is needed, use UUIDs in the unassigned range (e.g. 0xFF01-0xFF0F).
 #define BLE_SERVICE_UUID_HI          0x12345678UL
 #define BLE_SERVICE_UUID_LO          0x56789ABCUL
 
@@ -99,8 +106,8 @@ enum BLE_CHAR_ID {
 // ============================================================================
 
 #define COMPASS_I2C_ADDRESS  0x1C   // Default I2C address for LIS3MDL
-#define COMPASS_UPDATE_RATE_HZ 10   // Update frequency (10Hz para no saturar I2C)
-#define COMPASS_HEADING_ALPHA  0.5f // Alpha alto (0.5) para que siga reaccionando rápido al giro
+#define COMPASS_UPDATE_RATE_HZ 30   // Increased to 30Hz for real-time responsiveness
+#define COMPASS_HEADING_ALPHA  0.8f // Increased to 0.8 for faster heading convergence
 
 // Hard-iron & soft-iron offsets (calibration)
 // Defaults; can be overwritten by app config
@@ -120,20 +127,21 @@ enum BLE_CHAR_ID {
 
 #define HAPTIC_PATTERN_RX_DURATION_MS  (200+100+200+100+400)  // Total time
 #define HAPTIC_PATTERN_TX_DURATION_MS  (100+100+100+100)      // 2 flashes
+#define TIMER_HAPTIC_TX_TIMEOUT_MS  (HAPTIC_PATTERN_TX_DURATION_MS + 500)
 
 // ============================================================================
 // COLOR SCHEMES (ARGB8888 format: 0xAARRGGBB)
 // ============================================================================
 
-// CLOCK_CONNECTED (pink)
-#define COLOR_HOURS_CONNECTED    0xFFFF6699   // Pink
-#define COLOR_MINUTES_CONNECTED  0xFFFF6699   // Pink
-#define COLOR_SECONDS_CONNECTED  0xFFFF6699   // Pink
+// CLOCK_CONNECTED (distinct defaults, aligned with the app config contract)
+#define COLOR_HOURS_CONNECTED    0xFFFFDCB4   // Warm white
+#define COLOR_MINUTES_CONNECTED  0xFFFFF5F0   // Neutral white
+#define COLOR_SECONDS_CONNECTED  0xFFC8DCFF   // Cool blue
 
-// CLOCK_DISCONNECTED (pink)
-#define COLOR_HOURS_DISC         0xFFFF6699   // Pink
-#define COLOR_MINUTES_DISC       0xFFFF6699   // Pink
-#define COLOR_SECONDS_DISC       0xFFFF6699   // Pink
+// CLOCK_DISCONNECTED (distinct defaults, aligned with the app config contract)
+#define COLOR_HOURS_DISC         0xFF001478   // Deep navy
+#define COLOR_MINUTES_DISC       0xFF003CC8   // Strong blue
+#define COLOR_SECONDS_DISC       0xFF2864FF   // Bright blue
 
 // RADAR & DISTANCE modes
 #define COLOR_RADAR              0xFFFFB900   // Warm amber
@@ -182,7 +190,9 @@ enum BLE_CHAR_ID {
 // ============================================================================
 
 #define IMU_WAKE_ENABLED           1       // 1 = enabled, 0 = disabled (use only tap)
-#define IMU_ACCEL_RATE_HZ          12.5f   // Low-power rate (12.5Hz minimum)
+#define LSM6DS3_REG_TAP_CFG        0x58    // TR-C Interrupt Config Register
+#define LSM6DS3_INTERRUPTS_ENABLE  0x80    // Must be written to TAP_CFG for INT1 to work
+#define IMU_ACCEL_RATE_HZ          26.0f   // Low-power rate (match WAKE_UP_DUR timing)
 #define IMU_ACCEL_RANGE_G          2       // ±2G range (sufficient for wrist motion)
 
 // Wake-up threshold: 1 LSB = 62.5 mg at ±2G, 6-bit field (bits[5:0])
@@ -215,7 +225,7 @@ enum BLE_CHAR_ID {
 #define CALIBRATION_NUM_SAMPLES    5       // Number of gestures to capture
 #define CALIBRATION_TIMEOUT_MS     30000   // 30 seconds to complete calibration
 #define CALIBRATION_MIN_ACCEL_MG   200     // Minimum acceleration to register as valid gesture (mg)
-#define CALIBRATION_BUFFER_SIZE    256     // Max accel samples per gesture
+// #define CALIBRATION_BUFFER_SIZE    256     // Max accel samples per gesture (defined but never used)
 
 // EEPROM/Flash storage
 #define EEPROM_CALIB_ADDR          0x0000  // Start address for calibration data in flash
@@ -238,7 +248,9 @@ enum State {
   STATE_OTA_MODE,
   STATE_ERROR_NO_GPS,
   STATE_CALIBRATION_MODE,     // NEW: Rise-to-wake calibration
-  STATE_LOW_BATTERY           // Superimposed, not primary
+  STATE_BATTERY_DEAD_DISPLAY,
+  STATE_COMPASS_CALIBRATION,  // NEW: 3D compass calibration
+  STATE_LOW_BATTERY   // Overlay only — use setLowBatteryActive(). NEVER call transitionTo() with this.
 };
 
 enum GestureType {
@@ -246,7 +258,8 @@ enum GestureType {
   GESTURE_TAP_SIMPLE,
   GESTURE_TAP_DOUBLE,
   GESTURE_PRESS_SHORT,
-  GESTURE_PRESS_LONG
+  GESTURE_PRESS_LONG,
+  GESTURE_TAP_TRIPLE
 };
 
 enum BLEEvent {

@@ -1,9 +1,11 @@
 # Couples Smartwatch — Especificación Completa del Proyecto
-**Versión:** 1.2 — Pre-desarrollo  
+**Versión:** 2.1.0 — The Hardware Precision Update
 **Rol:** Ingeniero de Software de Wearables  
-**Estado:** Listo para implementación  
-**Cambios v1.1:** Power-down IMU/mic en setup() | Android-only (Foreground Service) | GPS Dynamic Polling  
-**Cambios v1.2:** Rise-to-wake via IMU LSM6DS3 (low-power wake-on-motion) — dos fuentes de wake en DEEP_SLEEP
+**Estado:** Implementado / Producción
+**Cambios v1.3.1:** Fix timeout de hardware I2C (`setTimeout(3)`), zero-initialization del CRC EEPROM, calibración del filtro de mediana en startup, y timeout háptico corregido.
+**Cambios v2.0:** Reesctructura completa. Eliminación de botón físico, wake up por giroscopio, FSM rediseñada, BLE en background.
+**Cambios v2.3.0:** (1.1.0+2 App). Auditoria end-to-end de firmware. Fix LED mirroring en reloj y app. Resolución de tearing en gestos, calibrador IMU reconstruido, atomizado EEPROM, bugs de conexión BLE reparados y compatibilidad en background de Android 14.
+**Cambios v2.1.0:** Reemplazo de `Adafruit_NeoPixel` por Hardware PWM EasyDMA para LEDs. Implementación de I2C bit-bang preciso (10µs/50kHz) para brújula con ODR de 80Hz. Fix de alineamiento y padding de structuras (Cortex-M4). Sincronización de hora atómica en 8 bytes (Epoch+Timezone). Batería salvada apagando pines internos de los status LEDs activos LOW.
 
 ---
 
@@ -11,16 +13,16 @@
 
 | Componente | Chip / Módulo | Pin | Notas |
 |---|---|---|---|
-| Microcontrolador | Seeed Studio XIAO nRF52840 **Sense** | — | Incluye IMU LSM6DS3 integrado. Soporta BLE 5.0 y OTA. |
-| Anillo LEDs | 12× SK6812-MINI-E (RGB+W) | `D7` (datos) | LED 1 = posición 12h (físicamente arriba). Orden horario. |
+| Microcontrolador | Seeed Studio XIAO nRF52840 **Sense** | — | Incluye IMU LSM6DS3 integrado. Soporta BLE 5.4 y OTA. |
+| Anillo LEDs | 12× SK6812-MINI-E (RGB) | `D7` (datos) | LED 1 = posición 12h (físicamente arriba). Orden horario. |
 | Corte energía LEDs | MOSFET | `D10` | HIGH = LEDs con corriente. LOW = corte total (deep sleep). |
-| Botón táctil | TTP223 | `D8` | Solo HIGH/LOW. Sin detección nativa de gestos. Toggle mode OFF. |
+| Botón táctil | TTP223 | `D8` | **Known hardware issue:** Mala ubicación cerca a los pads de batería, no funciona bien. Desactivado en firmware. |
 | Motor vibración | MOSFET | `D9` | HIGH = vibra. Control PWM opcional para intensidad. |
-| Magnetómetro | LIS3MDL | `D4` SDA / `D5` SCL | I2C custom (no los pines I2C por defecto del XIAO). |
+| Magnetómetro | LIS3MDL | `D4` SDA / `D5` SCL | I2C custom (no los pines I2C por defecto del XIAO). **Known hardware issue:** Faltan resistencias de pull-up externas en D4/D5. El firmware activa los pull-ups internos obligatoriamente antes de `Wire.begin()`. |
 
-**Nota crítica — Fuentes de wake del DEEP_SLEEP:** El reloj tiene **dos mecanismos de despertar** independientes:
-- **D8 (TTP223):** Tap del usuario → siempre disponible
-- **IMU LSM6DS3 (wake-on-motion):** Levantar la muñeca → rise-to-wake
+**Nota crítica — Fuentes de wake del DEEP_SLEEP:** El reloj solía tener **dos mecanismos de despertar** independientes, pero debido al error de hardware en el TTP223, ahora depende casi exclusivamente de:
+- **IMU LSM6DS3 (wake-on-motion):** Levantar la muñeca → rise-to-wake (gyro/accel flicks).
+- Gestos del usuario con muñeca para suplir interacciones de botón.
 
 El IMU **no** entra en Power-Down total durante DEEP_SLEEP; se configura en modo Low-Power con umbral de aceleración, consumiendo ~25µA adicionales a cambio del rise-to-wake. Ver sección 6.6 para el trade-off de batería completo.
 

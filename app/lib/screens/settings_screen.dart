@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -55,6 +56,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Enviar al reloj por BLE
     await bleService.writeConfig(_config);
 
+    if (!mounted) return;
     setState(() => _hasChanges = false);
 
     if (mounted) {
@@ -71,9 +73,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  void _showCompassCalibDialog(BuildContext context, BleService bleService) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return _CompassCalibDialog(bleService: bleService);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final repo = context.watch<PartnerRepository>();
+    final bleService = context.watch<BleService>();
+    final connected = bleService.connectionState == BleConnectionState.connected;
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A1A),
       appBar: AppBar(
@@ -289,12 +303,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const WakeCalibrationScreen(),
-                    ),
-                  ),
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const WakeCalibrationScreen(),
+                      ),
+                    );
+                    if (context.mounted) setState(() => _config = context.read<PartnerRepository>().config ?? _config);
+                  },
                   icon: const Icon(Icons.tune_rounded, size: 18),
                   label: const Text('Calibración avanzada'),
                   style: ElevatedButton.styleFrom(
@@ -371,6 +388,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ]),
 
+          // ── Brújula ──────────────────────────────────────────────────
+          _buildSection('Brújula (Magnetómetro)', [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Text(
+                'Calibra el magnetómetro interno del reloj para corregir desviaciones causadas por interferencias magnéticas.',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.white.withValues(alpha: 0.25),
+                  height: 1.4,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: connected ? () => _showCompassCalibDialog(context, bleService) : null,
+                  icon: const Icon(Icons.explore_rounded, size: 18),
+                  label: Text(connected
+                      ? 'Calibrar brújula'
+                      : 'Conecta el reloj primero'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2C1E2D),
+                    foregroundColor: const Color(0xFFFF88EE),
+                    disabledBackgroundColor: Colors.white.withValues(alpha: 0.05),
+                    disabledForegroundColor: Colors.white.withValues(alpha: 0.2),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+
           // ── Notificaciones ──────────────────────────────────────────
           _buildSection('Notificaciones', [
             _buildDropdownTile<String>(
@@ -386,6 +441,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _updateConfig((c) => c.copyWith(hapticPattern: value));
                 }
               },
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: connected
+                      ? () async {
+                          try {
+                            await bleService.sendHapticCommand();
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text('Toque de prueba enviado al reloj'),
+                                backgroundColor: const Color(0xFF1E2D2A),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            );
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Error al enviar toque: $e'),
+                                backgroundColor: const Color(0xFF3E1C1C),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            );
+                          }
+                        }
+                      : null,
+                  icon: const Icon(Icons.vibration_rounded, size: 18),
+                  label: Text(connected
+                      ? 'Probar vibración (Enviar toque)'
+                      : 'Conecta el reloj primero'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1C2E2A),
+                    foregroundColor: const Color(0xFF88FFBB),
+                    disabledBackgroundColor: Colors.white.withValues(alpha: 0.05),
+                    disabledForegroundColor: Colors.white.withValues(alpha: 0.2),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ]),
 
@@ -1104,6 +1211,169 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CompassCalibDialog extends StatefulWidget {
+  final BleService bleService;
+  const _CompassCalibDialog({required this.bleService});
+
+  @override
+  State<_CompassCalibDialog> createState() => _CompassCalibDialogState();
+}
+
+class _CompassCalibDialogState extends State<_CompassCalibDialog>
+    with SingleTickerProviderStateMixin {
+  int _secondsLeft = 10;
+  Timer? _timer;
+  bool _isDone = false;
+  late AnimationController _rotationCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotationCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+
+    // Iniciar calibración
+    widget.bleService.startCompassCalibration().catchError((e) {
+      print('[COMPASS] Error starting calibration: $e');
+    });
+
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_secondsLeft > 1) {
+        setState(() {
+          _secondsLeft--;
+        });
+      } else {
+        _timer?.cancel();
+        setState(() {
+          _isDone = true;
+          _secondsLeft = 0;
+        });
+        _rotationCtrl.stop();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _rotationCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF0F0F26),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!_isDone) ...[
+              RotationTransition(
+                turns: _rotationCtrl,
+                child: const Icon(
+                  Icons.explore_rounded,
+                  color: Color(0xFFFF88EE),
+                  size: 64,
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Calibrando Brújula...',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Mueve el reloj en forma de 8 (infinito) en todas las direcciones para recolectar lecturas 3D.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 72,
+                    height: 72,
+                    child: CircularProgressIndicator(
+                      value: _secondsLeft / 10.0,
+                      strokeWidth: 6,
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF88EE)),
+                      backgroundColor: Colors.white12,
+                    ),
+                  ),
+                  Text(
+                    '${_secondsLeft}s',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              const Icon(
+                Icons.check_circle_rounded,
+                color: Color(0xFF00FF88),
+                size: 64,
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                '¡Calibración Completada!',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Los nuevos coeficientes de calibración de hierro duro y blando han sido guardados en la memoria flash del reloj.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF163E2A),
+                    foregroundColor: const Color(0xFF00FF88),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text('Entendido'),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

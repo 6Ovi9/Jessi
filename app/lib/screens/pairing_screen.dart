@@ -33,6 +33,9 @@ class _PairingScreenState extends State<PairingScreen>
 
   @override
   void dispose() {
+    final ble = context.read<BleService>();
+    if (ble.isScanning) ble.stopScan();
+    _scanAnimController.stop();
     _scanAnimController.dispose();
     super.dispose();
   }

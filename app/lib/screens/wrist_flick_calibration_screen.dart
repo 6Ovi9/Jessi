@@ -91,11 +91,10 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
     if (ble.connectionState != BleConnectionState.connected) return;
     
     final repo = context.read<PartnerRepository>();
-    final cfg = (repo.config ?? WatchConfig.defaultFor(repo.myUserId)).copyWith(gyroThreshold: value);
-    
-    // Enviar configuración completa por BLE (que incluye el gyroThreshold mapeado como 'gt')
+    final current = repo.config ?? WatchConfig.defaultFor(repo.myUserId);
+    final cfg = current.copyWith(gyroThreshold: value);
+
     await ble.writeConfig(cfg);
-    // Guardar en base de datos local y remota
     await repo.saveConfig(cfg);
   }
 
@@ -104,8 +103,9 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
     if (ble.connectionState != BleConnectionState.connected) return;
     
     final repo = context.read<PartnerRepository>();
-    final cfg = (repo.config ?? WatchConfig.defaultFor(repo.myUserId)).copyWith(doubleFlickWindowMs: value);
-    
+    final current = repo.config ?? WatchConfig.defaultFor(repo.myUserId);
+    final cfg = current.copyWith(doubleFlickWindowMs: value);
+
     await ble.writeConfig(cfg);
     await repo.saveConfig(cfg);
   }
@@ -181,7 +181,7 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
                     isDetected: _isDetected,
                     detectAnim: _detectAnim,
                     totalDetections: _totalDetections,
-                    onTap: connected ? _simulateDetection : null,
+                    onTap: null,
                   ),
                   const SizedBox(height: 32),
 

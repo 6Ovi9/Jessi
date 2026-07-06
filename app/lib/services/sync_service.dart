@@ -133,11 +133,17 @@ class SyncService extends ChangeNotifier {
   // ── Ubicación de la pareja ← Supabase Realtime ────────────────────────
 
   /// Suscribirse a cambios en la ubicación de la pareja via Realtime.
-  void _subscribeToPartnerLocation() {
+  Future<void> _subscribeToPartnerLocation() async {
+    try {
+      await _locationChannel?.unsubscribe();
+    } catch (e) {
+      print('[SYNC] Error unsubscribing location channel: $e');
+    }
+    
     _locationChannel = _client
         .channel('partner-location')
         .onPostgresChanges(
-          event: PostgresChangeEvent.update,
+          event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'locations',
           filter: PostgresChangeFilter(
@@ -171,7 +177,13 @@ class SyncService extends ChangeNotifier {
   // ── Eventos hápticos ──────────────────────────────────────────────────
 
   /// Suscribirse a eventos hápticos dirigidos a este usuario.
-  void _subscribeToHapticEvents() {
+  Future<void> _subscribeToHapticEvents() async {
+    try {
+      await _hapticChannel?.unsubscribe();
+    } catch (e) {
+      print('[SYNC] Error unsubscribing haptic channel: $e');
+    }
+    
     _hapticChannel = _client
         .channel('haptic-events')
         .onPostgresChanges(

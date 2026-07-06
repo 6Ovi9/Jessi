@@ -22,14 +22,17 @@ public:
   
   // Get current state
   State getCurrentState() const { return current_state; }
+  State getPreviousState() const { return previous_state; }
   
   // Request state transitions
   void transitionTo(State new_state);
-  void transitionToIfConnected(State new_state);  // Only if BLE connected
   void transitionToWithTimeout(State new_state, uint32_t timeout_ms);
   
   // Check if state changed this update
-  bool stateChanged() { return state_changed; }
+  bool stateChanged() const { return state_changed; }
+  void clearStateChanged() { 
+    state_changed = false; 
+  }
   
   // Timer management
   void resetTimer(uint32_t timeout_ms);
@@ -39,10 +42,12 @@ public:
   // Low battery overlay (doesn't change current_state)
   void setLowBatteryActive(bool active) { low_battery_active = active; }
   bool isLowBatteryActive() const { return low_battery_active; }
+
+  // Low battery pulse callback (BUG-032)
+  typedef void (*LowBatteryPulseCallback)();
+  void setLowBatteryPulseCallback(LowBatteryPulseCallback cb) { _low_battery_cb = cb; }
   
-  // Wake source tracking (for rise-to-wake diagnostics)
-  int getLastWakeSource() const { return last_wake_source; }
-  void setWakeSource(int source) { last_wake_source = source; }
+
   
   // Get state name (for debugging)
   const char* getStateName() const;
@@ -51,8 +56,8 @@ public:
 private:
   State current_state;
   State previous_state;
-  State target_state;           // Used for transitions
   bool state_changed;
+  bool state_just_changed;
   
   uint32_t state_entered_ms;    // Timestamp when current state was entered
   uint32_t timer_start_ms;      // Timestamp when the current timer started
@@ -61,7 +66,7 @@ private:
   
   bool low_battery_active;      // Overlay flag (doesn't change state)
   uint32_t low_battery_pulse_last_ms;
-  int last_wake_source;         // WAKE_SOURCE_NONE, WAKE_SOURCE_TAP, or WAKE_SOURCE_MOTION
+  LowBatteryPulseCallback _low_battery_cb;
   
   // Helper for state transitions
   void _enterState(State new_state);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -73,15 +74,18 @@ class LocationService extends ChangeNotifier {
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
-  /// Verificar y solicitar permisos de ubicación
+  /// Verificar y solicitar permisos de ubicación.
+  ///
+  /// En Android se intenta subir de `whileInUse` a `always` una sola vez para
+  /// permitir el uso del GPS en background con el foreground service.
   Future<bool> checkAndRequestPermissions() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       print('[GPS] Location services are disabled');
       return false;
     }
 
-    LocationPermission permission = await Geolocator.checkPermission();
+    var permission = await Geolocator.checkPermission();
 
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -96,15 +100,24 @@ class LocationService extends ChangeNotifier {
       return false;
     }
 
-    // Para background location en Android
-    if (permission == LocationPermission.whileInUse) {
-      // Necesitamos "always" para background
-      // En Android 11+, primero se da "while in use", luego "always"
-      permission = await Geolocator.requestPermission();
+    if (shouldUpgradeToAlwaysPermission(isAndroid: Platform.isAndroid, permission: permission)) {
+      final upgradedPermission = await Geolocator.requestPermission();
+      permission = upgradedPermission;
     }
 
+    final hasRequiredPermission = permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
+
     print('[GPS] Location permission granted: $permission');
-    return true;
+    return hasRequiredPermission;
+  }
+
+  @visibleForTesting
+  static bool shouldUpgradeToAlwaysPermission({
+    required bool isAndroid,
+    required LocationPermission permission,
+  }) {
+    return isAndroid && permission == LocationPermission.whileInUse;
   }
 
   /// Iniciar el servicio de localización con dynamic polling.
@@ -226,6 +239,7 @@ class LocationService extends ChangeNotifier {
   /// Programar la siguiente actualización GPS según el modo actual
   void _scheduleNextUpdate() {
     _pollingTimer?.cancel();
+    if (!_isRunning) return;
 
     final interval = BearingCalculator.getPollingInterval(
       _currentMode,

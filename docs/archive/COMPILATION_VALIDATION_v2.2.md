@@ -1,4 +1,4 @@
-# Nexus Halo Firmware v1.2 — Compilation Validation
+# Nexus Halo Firmware v2.2 — Compilation Validation
 
 ## Pre-Compilation Checklist
 

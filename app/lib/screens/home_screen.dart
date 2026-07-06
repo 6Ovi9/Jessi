@@ -53,11 +53,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final locationService = context.watch<LocationService>();
     final syncService = context.watch<SyncService>();
     final repo = context.watch<PartnerRepository>();
-    final watchConfig = repo.config ?? WatchConfig.defaultFor('A');
+    final watchConfig = repo.config ?? WatchConfig.defaultFor(repo.myUserId);
 
     final isConnected = bleService.connectionState == BleConnectionState.connected;
     final distanceKm = locationService.distanceKm;
     final bearing = locationService.bearingDeg;
+    final heading = locationService.currentPosition?.heading ?? 0.0;
+    final relativeBearing = (bearing - heading + 360) % 360;
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A1A),
@@ -86,7 +88,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       mode: _previewMode,
                       config: watchConfig,
                       isConnected: isConnected,
-                      bearing: bearing,
+                      bearing: relativeBearing,
                       distanceKm: distanceKm >= 0 ? distanceKm : 0,
                       size: MediaQuery.of(context).size.width * 0.65,
                     ),
@@ -108,7 +110,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 child: Column(
                   children: [
                     // Distancia y dirección
-                    _buildDistanceCard(distanceKm, bearing, isConnected),
+                    _buildDistanceCard(distanceKm, relativeBearing, isConnected),
                     const SizedBox(height: 12),
                     // Estado del sistema
                     _buildStatusCard(
@@ -411,7 +413,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             Icons.bluetooth_rounded,
             'BLE',
             bleService.connectionState == BleConnectionState.connected
-                ? 'Conectado (${bleService.connectedDeviceId?.substring(0, 8) ?? "?"}...)'
+                ? 'Conectado (${(bleService.connectedDeviceId?.length ?? 0) > 8 ? bleService.connectedDeviceId!.substring(0, 8) : (bleService.connectedDeviceId ?? "?")}...)'
                 : bleService.connectionState.name,
             bleService.connectionState == BleConnectionState.connected
                 ? const Color(0xFF00CC88)

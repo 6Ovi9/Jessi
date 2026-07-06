@@ -6,11 +6,12 @@ using namespace Adafruit_LittleFS_Namespace;
 RuntimeConfigManager::RuntimeConfigManager()
   : initialized(false)
 {
+  memset(&config, 0, sizeof(config));
   resetDefaults();
 }
 
 void RuntimeConfigManager::begin() {
-  InternalFS.begin();
+  // InternalFS is now initialized centrally in setup()
   
   if (!loadFromFlash()) {
     resetDefaults();
@@ -82,14 +83,29 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
   }
   
   // Parse integers
-  config.clockTimeoutS     = _findJsonInt(json, "ct", config.clockTimeoutS);
-  config.sleepTimeoutS     = _findJsonInt(json, "st", config.sleepTimeoutS);
-  config.brightnessPercent = _findJsonInt(json, "br", config.brightnessPercent);
-  config.lowBatteryThreshold = _findJsonInt(json, "lb", config.lowBatteryThreshold);
-  config.wakeThreshold     = _findJsonInt(json, "wt", config.wakeThreshold);
-  config.gyroThreshold     = _findJsonInt(json, "gt", config.gyroThreshold);
-  config.doubleFlickWindow = _findJsonInt(json, "df", config.doubleFlickWindow);
-  config.hapticPatternIndex = _findJsonInt(json, "hp", config.hapticPatternIndex);
+  int ct = _findJsonInt(json, "ct", config.clockTimeoutS);
+  config.clockTimeoutS = ct < 0 ? 0 : (ct > 65535 ? 65535 : ct);
+  
+  int st = _findJsonInt(json, "st", config.sleepTimeoutS);
+  config.sleepTimeoutS = st < 0 ? 0 : (st > 65535 ? 65535 : st);
+  
+  int br = _findJsonInt(json, "br", config.brightnessPercent);
+  config.brightnessPercent = br < 0 ? 0 : (br > 100 ? 100 : br);
+  
+  int lb = _findJsonInt(json, "lb", config.lowBatteryThreshold);
+  config.lowBatteryThreshold = lb < 0 ? 0 : (lb > 100 ? 100 : lb);
+  
+  int wt = _findJsonInt(json, "wt", config.wakeThreshold);
+  config.wakeThreshold = wt < 0 ? 0 : (wt > 255 ? 255 : wt);
+  
+  int gt = _findJsonInt(json, "gt", config.gyroThreshold);
+  config.gyroThreshold = gt < 0 ? 0 : (gt > 65535 ? 65535 : gt);
+  
+  int df = _findJsonInt(json, "df", config.doubleFlickWindow);
+  config.doubleFlickWindow = df < 0 ? 0 : (df > 65535 ? 65535 : df);
+  
+  int hp = _findJsonInt(json, "hp", config.hapticPatternIndex);
+  config.hapticPatternIndex = hp < 0 ? 0 : (hp > 255 ? 255 : hp);
 
   
   // Parse boolean (sent as 0/1)
@@ -98,6 +114,7 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
     config.logarithmicBrightness = (lg != 0);
   }
   
+  saveToFlash();
   // Serial.println("[CONFIG] Updated from BLE JSON");
   return true;
 }
@@ -108,41 +125,54 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
 
 bool RuntimeConfigManager::saveToFlash() {
   struct FlashData {
-    uint16_t magic;
     RuntimeConfig cfg;
+    uint16_t magic;
     uint8_t checksum;
   };
   
   FlashData data;
+  // Explicitly memset to 0 to guarantee zeroed compiler padding gaps
+  memset(&data, 0, sizeof(data));
+  
   data.magic = RUNTIME_CONFIG_MAGIC;
   data.cfg = config;
   
-  // Calculate checksum
+  // Calculate checksum dynamically using offsetof
   data.checksum = 0;
   const uint8_t* ptr = (const uint8_t*)&data;
   uint8_t sum = 0;
-  for (size_t i = 0; i < sizeof(data) - 1; i++) {
+  for (size_t i = 0; i < offsetof(FlashData, checksum); i++) {
     sum += ptr[i];
   }
   data.checksum = sum;
   
-  // Delete old file first (InternalFS doesn't support overwrite well)
-  InternalFS.remove(RUNTIME_CONFIG_FILE);
+  // BUG-038: Write to temp file, then rename atomically.
+  // Old pattern (remove then write) left no valid file on power loss mid-write.
+  const char* TMP_FILE = "config.tmp";
+  InternalFS.remove(TMP_FILE); // Clear any stale temp from previous crashed attempt
   
   File file(InternalFS);
-  if (!file.open(RUNTIME_CONFIG_FILE, FILE_O_WRITE)) {
+  if (!file.open(TMP_FILE, FILE_O_WRITE)) {
     return false;
   }
-  
-  file.write((const uint8_t*)&data, sizeof(data));
+  if (file.write((const uint8_t*)&data, sizeof(data)) != sizeof(data)) {
+    file.close();
+    InternalFS.remove(TMP_FILE);
+    return false;
+  }
   file.close();
+  
+  // Atomically promote: only delete old file once the new one is safely written
+  if (!InternalFS.rename(TMP_FILE, RUNTIME_CONFIG_FILE)) {
+    return false;
+  }
   return true;
 }
 
 bool RuntimeConfigManager::loadFromFlash() {
   struct FlashData {
-    uint16_t magic;
     RuntimeConfig cfg;
+    uint16_t magic;
     uint8_t checksum;
   };
   
@@ -151,31 +181,50 @@ bool RuntimeConfigManager::loadFromFlash() {
     return false;
   }
   
-  FlashData data;
-  if (file.read(&data, sizeof(data)) != sizeof(data)) {
+  size_t fileSize = file.size();
+  if (fileSize == 0 || fileSize > 128) {
+    file.close();
+    return false;
+  }
+  
+  uint8_t buf[128];
+  if (file.read(buf, fileSize) != fileSize) {
     file.close();
     return false;
   }
   file.close();
-  
-  // Verify magic
-  if (data.magic != RUNTIME_CONFIG_MAGIC) {
-    return false;
+
+  if (fileSize == sizeof(FlashData)) {
+    FlashData data;
+    memcpy(&data, buf, sizeof(FlashData));
+    if (data.magic != RUNTIME_CONFIG_MAGIC) return false;
+    
+    uint8_t sum = 0;
+    for (size_t i = 0; i < offsetof(FlashData, checksum); i++) sum += buf[i];
+    if (sum != data.checksum) return false;
+    
+    config = data.cfg;
+    return true;
   }
   
-  // Verify checksum
-  const uint8_t* ptr = (const uint8_t*)&data;
-  uint8_t sum = 0;
-  for (size_t i = 0; i < sizeof(data) - 1; i++) {
-    sum += ptr[i];
-  }
-  if (sum != data.checksum) {
-    return false;
+  // Migration path: locate magic number to safely extract partial old config
+  int magic_idx = -1;
+  for (int i = fileSize - 2; i >= 0; i--) {
+    uint16_t m;
+    memcpy(&m, &buf[i], 2);
+    if (m == RUNTIME_CONFIG_MAGIC) {
+      magic_idx = i;
+      break;
+    }
   }
   
-  config = data.cfg;
-  // Serial.println("[CONFIG] Loaded from flash");
-  return true;
+  if (magic_idx > 0) {
+    size_t copyLen = magic_idx > sizeof(RuntimeConfig) ? sizeof(RuntimeConfig) : magic_idx;
+    // config is already loaded with defaults from constructor, so we just overwrite the old fields
+    memcpy(&config, buf, copyLen);
+    return true;
+  }
+  return false;
 }
 
 // ============================================================================
@@ -195,48 +244,71 @@ uint32_t RuntimeConfigManager::_parseHexColor(const char* hex, uint8_t len) {
 }
 
 bool RuntimeConfigManager::_findJsonString(const char* json, const char* key, char* out, uint8_t maxLen) {
-  // Find "key":"value" pattern
+  // Find "key":"value" pattern.
+  // BUG-039: strstr could match a key that is a prefix of another key (e.g.
+  // searching for "ct" matches "ctwo" or "cta"). Require that the character
+  // immediately after the closing quote and colon delimiter is a quote.
   char search[20];
   snprintf(search, sizeof(search), "\"%s\":\"", key);
   
-  const char* pos = strstr(json, search);
-  if (!pos) return false;
-  
-  pos += strlen(search);  // Skip to value start
-  
-  uint8_t i = 0;
-  while (*pos && *pos != '"' && i < maxLen - 1) {
-    out[i++] = *pos++;
+  const char* pos = json;
+  while ((pos = strstr(pos, search)) != nullptr) {
+    // Verify the key started at a JSON boundary (preceded by '{' or ',')
+    if (pos > json) {
+      char prev = *(pos - 1);
+      if (prev != '{' && prev != ',' && prev != ' ' && prev != '\n' && prev != '\r' && prev != '\t') {
+        pos++;
+        continue; // False match — not a real key boundary
+      }
+    }
+    pos += strlen(search); // Skip to value start
+    uint8_t i = 0;
+    while (*pos && *pos != '"' && i < maxLen - 1) {
+      out[i++] = *pos++;
+    }
+    out[i] = '\0';
+    return i > 0;
   }
-  out[i] = '\0';
-  return i > 0;
+  return false;
 }
 
 int RuntimeConfigManager::_findJsonInt(const char* json, const char* key, int defaultVal) {
-  // Find "key":123 pattern
+  // Find "key":123 pattern.
+  // BUG-039: Same key-boundary check as _findJsonString. Without this, key "ct"
+  // could match a hypothetical future key "cta", silently reading wrong data.
   char search[20];
   snprintf(search, sizeof(search), "\"%s\":", key);
   
-  const char* pos = strstr(json, search);
-  if (!pos) return defaultVal;
-  
-  pos += strlen(search);
-  
-  // Skip whitespace
-  while (*pos == ' ') pos++;
-  
-  // Parse integer
-  bool negative = false;
-  if (*pos == '-') { negative = true; pos++; }
-  
-  int result = 0;
-  bool found = false;
-  while (*pos >= '0' && *pos <= '9') {
-    result = result * 10 + (*pos - '0');
-    pos++;
-    found = true;
+  const char* pos = json;
+  while ((pos = strstr(pos, search)) != nullptr) {
+    // Require JSON boundary before the key
+    if (pos > json) {
+      char prev = *(pos - 1);
+      if (prev != '{' && prev != ',' && prev != ' ' && prev != '\n' && prev != '\r' && prev != '\t') {
+        pos++;
+        continue; // False match
+      }
+    }
+    
+    pos += strlen(search);
+    
+    // Skip whitespace
+    while (*pos == ' ') pos++;
+    
+    // Parse integer
+    bool negative = false;
+    if (*pos == '-') { negative = true; pos++; }
+    
+    int result = 0;
+    bool found = false;
+    while (*pos >= '0' && *pos <= '9') {
+      result = result * 10 + (*pos - '0');
+      pos++;
+      found = true;
+    }
+    
+    if (!found) return defaultVal;
+    return negative ? -result : result;
   }
-  
-  if (!found) return defaultVal;
-  return negative ? -result : result;
+  return defaultVal;
 }

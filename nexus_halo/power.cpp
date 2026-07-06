@@ -27,6 +27,16 @@ static void _writeLSM6DS3Register(uint8_t reg, uint8_t value) {
   Wire1.endTransmission(true); // Stop condition
 }
 
+static bool _readLSM6DS3Register(uint8_t reg, uint8_t &out) {
+  Wire1.beginTransmission(0x6A);
+  Wire1.write(reg);
+  if (Wire1.endTransmission(true) != 0) return false;
+  Wire1.requestFrom((uint8_t)0x6A, (uint8_t)1);
+  if (!Wire1.available()) return false;
+  out = Wire1.read();
+  return true;
+}
+
 PowerManager::PowerManager()
   : battery_percent(100),
     last_battery_update_ms(0),
@@ -63,18 +73,14 @@ void PowerManager::powerDownInternalSensors() {
   // ============================================================================
   
   #if !IMU_WAKE_ENABLED
-    // If rise-to-wake is disabled, power down IMU completely
+    // BUG-023: Old code powered off then immediately back on. IMU was never truly off.
+    // Correct: disable registers via I2C, then cut VDD permanently.
+    Wire1.begin();
+    Wire1.beginTransmission(0x6A); Wire1.write(0x11); Wire1.write(0x00); Wire1.endTransmission(); // Gyro off
+    Wire1.beginTransmission(0x6A); Wire1.write(0x10); Wire1.write(0x00); Wire1.endTransmission(); // Accel off
+    delay(5); // Register write settle - acceptable: this is setup path only, not loop()
     pinMode(PIN_LSM6DS3TR_C_POWER, OUTPUT);
-    digitalWrite(PIN_LSM6DS3TR_C_POWER, LOW);
-    delay(50);
-    digitalWrite(PIN_LSM6DS3TR_C_POWER, HIGH);
-    delay(100); // Give it time to power up
-    Wire1.begin(); // Internal IMU uses Wire1
-
-    // Disable Gyroscope (CTRL2_G = 0x00)
-    _writeLSM6DS3Register(0x11, 0x00);
-    // Disable Accelerometer (CTRL1_XL = 0x00)
-    _writeLSM6DS3Register(0x10, 0x00);
+    digitalWrite(PIN_LSM6DS3TR_C_POWER, LOW); // VDD stays low permanently
   #endif
 
   // ============================================================================
@@ -83,6 +89,15 @@ void PowerManager::powerDownInternalSensors() {
   
   PDM.begin(1, 16000);
   PDM.end();
+  // Manually disable PDM peripheral to shut down HFCLK and EasyDMA
+  NRF_PDM->ENABLE = 0;
+  
+  // FIX: Force PDM clock and data pins back to disconnected inputs
+  // The XIAO nRF52840 Sense uses P0.16 for PDM CLK and P1.00 for PDM DIN.
+  NRF_P1->PIN_CNF[0] = (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
+                       (GPIO_PIN_CNF_INPUT_Disconnect << GPIO_PIN_CNF_INPUT_Pos);
+  NRF_P0->PIN_CNF[16] = (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
+                        (GPIO_PIN_CNF_INPUT_Disconnect << GPIO_PIN_CNF_INPUT_Pos);
   
   // Serial.println("[POWER] PDM microphone powered down");
 }
@@ -142,19 +157,7 @@ void PowerManager::setupIMUForRiseToWake() {
   // 7. Enable basic interrupts globally (TAP_CFG (0x58) bit INTERRUPTS_ENABLE = 1)
   _writeLSM6DS3Register(0x58, 0x80);
 
-  // 8. CRITICAL: Clear any pending wake-up flag by reading WAKE_UP_SRC (0x1B).
-  //    If INT1 is already latched from a previous event, the ISR fires
-  //    immediately on attachInterrupt() and the device never sleeps.
-  Wire1.beginTransmission(0x6A);
-  Wire1.write(0x1B); // WAKE_UP_SRC register — reading it clears the latch
-  Wire1.endTransmission(false);
-  Wire1.requestFrom((uint8_t)0x6A, (uint8_t)1);
-  if (Wire1.available()) {
-    uint8_t src = Wire1.read();
-    Serial.print("[POWER] WAKE_UP_SRC cleared: 0x");
-    Serial.println(src, HEX);
-  }
-  delay(5);
+
 
   Serial.println("[POWER] IMU configured for rise-to-wake via INT1.");
   Serial.println("[POWER] setupIMUForRiseToWake finished");
@@ -162,11 +165,17 @@ void PowerManager::setupIMUForRiseToWake() {
 
 void PowerManager::updateIMUThreshold(uint8_t new_threshold) {
   wake_threshold = new_threshold;
-
-  // Use Wire1 — internal IMU (already initialized in setup)
-  _writeLSM6DS3Register(LSM6DS3_REG_WAKE_UP_THS, new_threshold);
+  uint8_t current_val = 0;
+  uint8_t masked_val;
+  if (_readLSM6DS3Register(LSM6DS3_REG_WAKE_UP_THS, current_val)) {
+    masked_val = (current_val & 0xC0) | (new_threshold & 0x3F);
+  } else {
+    masked_val = new_threshold & 0x3F;
+    Serial.println("[POWER] Warning: could not read WAKE_UP_THS - upper bits cleared");
+  }
+  _writeLSM6DS3Register(LSM6DS3_REG_WAKE_UP_THS, masked_val);
   Serial.print("[POWER] IMU wake threshold updated: 0x");
-  Serial.println(new_threshold, HEX);
+  Serial.println(masked_val, HEX);
 }
 
 void PowerManager::enterDeepSleep() {
@@ -186,14 +195,16 @@ void PowerManager::enterDeepSleep() {
   (void) sd_softdevice_is_enabled(&sd_en);
   
   if (sd_en) {
-    (void) sd_app_evt_wait();
+    delay(10);
   } else {
-    __WFE();
     __SEV();
+    __WFE();
     __WFE();
   }
 #else
-  __WFI();
+  __SEV();
+  __WFE();
+  __WFE();
 #endif
 }
 
@@ -213,10 +224,12 @@ uint8_t PowerManager::_readBatteryVoltage() {
   delay(1); // Wait for voltage to settle
   #endif
 
+  analogReference(AR_INTERNAL);  // BUG-025: 0.6V ref, 1/6 gain = 3.6V full-scale at 12-bit
+  analogReadResolution(12);
   int raw = analogRead(pin_battery_adc);
   
   #ifdef PIN_VBAT_ENABLE
-  digitalWrite(PIN_VBAT_ENABLE, HIGH); // Disable voltage divider to save power
+  pinMode(PIN_VBAT_ENABLE, INPUT);     // Disable voltage divider safely (High-Z)
   #endif
   
   // XIAO: 12-bit ADC (0-4095), reference 3.6V (internal bandgap)
@@ -244,8 +257,7 @@ void PowerManager::_setupBatteryADC() {
   analogReadResolution(12);  // 12-bit resolution for XIAO
   
   #ifdef PIN_VBAT_ENABLE
-  pinMode(PIN_VBAT_ENABLE, OUTPUT);
-  digitalWrite(PIN_VBAT_ENABLE, HIGH); // Disable voltage divider by default
+  pinMode(PIN_VBAT_ENABLE, INPUT); // High-Z disables voltage divider safely
   #endif
 #endif
 }

@@ -1,17 +1,22 @@
 #include "state_machine.h"
+#include "runtime_config.h"
+#include "gesture.h"
+
+extern RuntimeConfigManager runtime_config;
+extern GestureDetector gesture_detector;
 
 StateMachine::StateMachine()
   : current_state(STATE_DEEP_SLEEP),
     previous_state(STATE_DEEP_SLEEP),
-    target_state(STATE_DEEP_SLEEP),
     state_changed(false),
+    state_just_changed(false),
     state_entered_ms(0),
     timer_start_ms(0),
     timer_duration_ms(0),
     timer_active(false),
     low_battery_active(false),
-    low_battery_pulse_last_ms(0),
-    last_wake_source(WAKE_SOURCE_NONE)
+    low_battery_pulse_last_ms((uint32_t)-TIMER_LOW_BATTERY_PULSE_MS),
+    _low_battery_cb(nullptr)
 {
 }
 
@@ -23,8 +28,10 @@ void StateMachine::begin() {
   timer_active = false;
 }
 
-void StateMachine::update(uint32_t now_ms) {
-  state_changed = false;
+void StateMachine::update(uint32_t stale_now_ms) {
+  // Explicitly refresh now_ms to prevent underflow from stale value passed by loop
+  // caused by heavy blocking transitions
+  uint32_t now_ms = millis();
   
   // Check timer expiration (overflow-safe)
   if (timer_active && (now_ms - timer_start_ms >= timer_duration_ms)) {
@@ -35,21 +42,28 @@ void StateMachine::update(uint32_t now_ms) {
       case STATE_CLOCK_DISCONNECTED:
         transitionTo(STATE_DEEP_SLEEP);
         break;
+      case STATE_CALIBRATION_MODE:
+        transitionTo(previous_state);
+        break;
       case STATE_RADAR_MODE:
       case STATE_DISTANCE_MODE:
-        transitionTo(STATE_CLOCK_CONNECTED);
+        transitionTo(previous_state);
         break;
       case STATE_HAPTIC_RX:
         transitionTo(previous_state);
         break;
       case STATE_HAPTIC_TX:
-        transitionTo(STATE_CLOCK_CONNECTED);
+        transitionTo(previous_state);
         break;
       case STATE_ERROR_NO_GPS:
         transitionTo(previous_state);
         break;
       case STATE_WAKING_UP:
-        // WAKING_UP should be handled by gesture/BLE callback, not timeout
+        // WAKING_UP timed out (failed to init hardware). Fall back to DEEP_SLEEP.
+        transitionTo(STATE_DEEP_SLEEP);
+        break;
+      case STATE_BATTERY_DEAD_DISPLAY:
+        transitionTo(STATE_DEEP_SLEEP);
         break;
       default:
         break;
@@ -60,28 +74,31 @@ void StateMachine::update(uint32_t now_ms) {
   if (low_battery_active) {
     if ((now_ms - low_battery_pulse_last_ms) >= TIMER_LOW_BATTERY_PULSE_MS) {
       low_battery_pulse_last_ms = now_ms;
-      // Pulse motor/LED once (handled by haptic_controller and led_controller)
+      if (_low_battery_cb) _low_battery_cb();
     }
   }
 }
 
 void StateMachine::transitionTo(State new_state) {
   if (new_state == current_state) {
+    if (new_state == STATE_HAPTIC_RX || new_state == STATE_HAPTIC_TX || new_state == STATE_BATTERY_DEAD_DISPLAY) {
+      _enterState(new_state);
+      state_changed = true;
+      state_just_changed = true;
+    }
     return;  // Already in this state
   }
   
   _exitState();
-  previous_state = current_state;
+  if (new_state == STATE_HAPTIC_RX || new_state == STATE_HAPTIC_TX) {
+    previous_state = (current_state == STATE_DEEP_SLEEP) ? STATE_CLOCK_CONNECTED : current_state;
+  } else if (current_state != STATE_WAKING_UP && current_state != STATE_BATTERY_DEAD_DISPLAY && current_state != STATE_LOW_BATTERY && current_state != STATE_HAPTIC_RX && current_state != STATE_HAPTIC_TX && current_state != STATE_ERROR_NO_GPS) {
+    previous_state = current_state;
+  }
   current_state = new_state;
   _enterState(new_state);
   state_changed = true;
-}
-
-void StateMachine::transitionToIfConnected(State new_state) {
-  // This would check BLE connection status
-  // For now, just do a regular transition
-  // The caller (gesture handler) should verify connectivity
-  transitionTo(new_state);
+  state_just_changed = true;
 }
 
 void StateMachine::transitionToWithTimeout(State new_state, uint32_t timeout_ms) {
@@ -90,6 +107,7 @@ void StateMachine::transitionToWithTimeout(State new_state, uint32_t timeout_ms)
 }
 
 void StateMachine::resetTimer(uint32_t timeout_ms) {
+  if (timeout_ms == 0) { timer_active = false; return; }
   uint32_t now_ms = millis();
   timer_duration_ms = timeout_ms;
   timer_start_ms = now_ms;
@@ -113,6 +131,8 @@ void StateMachine::_enterState(State new_state) {
   uint32_t now_ms = millis();
   state_entered_ms = now_ms;
   
+  gesture_detector.reset();
+  
   // Set default timeout based on state
   uint32_t default_timeout = _getDefaultTimeout(new_state);
   if (default_timeout > 0) {
@@ -130,18 +150,20 @@ uint32_t StateMachine::_getDefaultTimeout(State state) const {
   switch (state) {
     case STATE_CLOCK_CONNECTED:
     case STATE_CLOCK_DISCONNECTED:
-      return TIMER_CLOCK_TIMEOUT_MS;
+      return (uint32_t)runtime_config.getConfig().clockTimeoutS * 1000;
     case STATE_RADAR_MODE:
     case STATE_DISTANCE_MODE:
-      return TIMER_RADAR_TIMEOUT_MS;
+      return (uint32_t)runtime_config.getConfig().sleepTimeoutS * 1000;
     case STATE_ERROR_NO_GPS:
       return TIMER_ERROR_NO_GPS_MS;
     case STATE_WAKING_UP:
-      return TIMER_WAKING_UP_MS;
+      return 3000;  // 3-second timeout to prevent infinite waking-up deadlock
+    case STATE_BATTERY_DEAD_DISPLAY:
+      return 2000;  // Show dead battery for 2 seconds
     case STATE_HAPTIC_RX:
       return TIMER_HAPTIC_RX_TIMEOUT_MS;
     case STATE_HAPTIC_TX:
-      return TIMER_HAPTIC_RX_TIMEOUT_MS;
+      return TIMER_HAPTIC_TX_TIMEOUT_MS;  // 400ms pattern + 100ms margin
     default:
       return 0;  // No default timeout
   }
@@ -164,6 +186,7 @@ const char* StateMachine::getStateName(State state) const {
     case STATE_OTA_MODE:             return "OTA_MODE";
     case STATE_ERROR_NO_GPS:         return "ERROR_NO_GPS";
     case STATE_CALIBRATION_MODE:     return "CALIBRATION_MODE";
+    case STATE_BATTERY_DEAD_DISPLAY: return "BATTERY_DEAD_DISPLAY";
     case STATE_LOW_BATTERY:          return "LOW_BATTERY";
     default:                         return "UNKNOWN";
   }

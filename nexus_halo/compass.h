@@ -3,23 +3,11 @@
 
 #include "config.h"
 #include <Arduino.h>
-#include <Wire.h>
+#include "variant.h"
 
 // ============================================================================
 // COMPASS CONTROLLER (LIS3MDL Magnetometer on custom I2C D4/D5)
-// Sin dependencia de Adafruit_LIS3MDL — lectura directa por I2C.
-//
-// LIS3MDL registros clave:
-//   0x0F  WHO_AM_I       → 0x3D si el chip es correcto
-//   0x20  CTRL_REG1      → ODR, performance mode, TEMP_EN
-//   0x21  CTRL_REG2      → rango (FS)
-//   0x22  CTRL_REG3      → modo operación: 0x00 = continuous
-//   0x23  CTRL_REG4      → eje Z performance
-//   0x24  CTRL_REG5      → BDU (bit6)
-//   0x27  STATUS_REG     → bit3 = ZYXDA (nuevo dato listo)
-//   0x28  OUT_X_L        → inicio datos (6 bytes, little-endian, XYZ)
-//
-// Sensibilidad FS=±4 Gauss: 6842 LSB/Gauss
+// Bit-bang I2C implementation to bypass hardware TWIM lockups.
 // ============================================================================
 
 // LIS3MDL register map
@@ -33,37 +21,24 @@
 #define LIS3MDL_REG_OUT_X_L 0x28
 
 #define LIS3MDL_WHO_AM_I_VALUE 0x3D
-#define LIS3MDL_SENSITIVITY                                                    \
-  6842.0f // LSB/Gauss at ±4G → divide para µT (*100/6842)
+#define LIS3MDL_SENSITIVITY 6842.0f // LSB/Gauss at ±4G
 
 class CompassController {
 public:
   CompassController();
 
-  // Inicializa el magnetómetro en Wire (D4=SDA, D5=SCL)
   void begin();
-
-  // Lee y actualiza el heading (llamar desde loop)
-  void update();
-
-  // Heading actual en grados (0–360, Norte = 0)
+  void reinitBus();
+  void update(float ax = 0.0f, float ay = 0.0f, float az = 1.0f);
   float getHeading() const { return current_heading; }
-
-  // Calibración manual (el usuario rota el reloj)
   void startCalibration();
   bool isCalibrating() const { return calibrating; }
   void calibrationUpdate();
-
-  // Persistencia en flash
   void saveCalibration();
   void loadCalibration();
-
-  // Control de energía (Deep Sleep)
   void powerDown();
   void powerUp();
   bool isPoweredDown() const { return powered_down; }
-
-  // Diagnóstico
   bool isConnected() const { return sensor_connected; }
   float getRawX() const { return raw_x; }
   float getRawY() const { return raw_y; }
@@ -73,38 +48,46 @@ private:
   bool sensor_connected;
   bool powered_down;
   uint8_t sensor_address;
-  uint8_t zero_reading_count;
+  uint16_t zero_reading_count;
+
+  // Single conversion sequence state
+  bool conversion_pending;
+  uint32_t trigger_ms;
 
   float current_heading;
   float heading_filtered;
   uint32_t last_update_ms;
 
-  // Calibración hard-iron / soft-iron
   bool calibrating;
   uint32_t calibration_start_ms;
   float min_x, max_x, min_y, max_y, min_z, max_z;
   float offset_x, offset_y, offset_z;
   float scale_x, scale_y, scale_z;
 
-  // Lecturas raw (µT)
   float raw_x, raw_y, raw_z;
 
-  // Filtro de mediana (ventana 5)
-  static const int FILTER_WINDOW = 5;
+  static const int FILTER_WINDOW = 2;
   float history_x[FILTER_WINDOW];
   float history_y[FILTER_WINDOW];
   int history_idx;
   bool history_filled;
 
-  // I2C helpers
-  bool _writeReg(uint8_t reg, uint8_t value);
-  bool _readReg(uint8_t reg, uint8_t &value);
-  bool _readRaw(float &x, float &y, float &z);
-  bool _softReset();
-  bool _configure();
-  bool _resetBus();
+  // Bit-bang I2C variables
+  NRF_GPIO_Type* sclPort;
+  NRF_GPIO_Type* sdaPort;
+  uint32_t sclBit;
+  uint32_t sdaBit;
 
-  // Cálculo
+  // Bit-bang helper methods
+  void i2c_init();
+  void i2c_start();
+  void i2c_stop();
+  bool i2c_wb(uint8_t b);
+  uint8_t i2c_rb(bool ack);
+  bool wreg(uint8_t reg, uint8_t val);
+  bool rreg(uint8_t reg, uint8_t &val);
+  bool readAxes(float &cx, float &cy, float &cz);
+
   float _calculateHeading(float x, float y);
   void _applyCalibration(float &x, float &y, float &z);
 };

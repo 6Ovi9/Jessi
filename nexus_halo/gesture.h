@@ -25,6 +25,9 @@ public:
   // Get detected gesture (clears after reading)
   GestureType getGesture();
   
+  // Non-destructive read for debug prints
+  GestureType getDetectedGesture() const { return detected_gesture; }
+  
   // Clear flick tracking states
   void reset();
   
@@ -37,35 +40,13 @@ public:
   // Set double-flick timing window dynamically
   void setDoubleFlickWindow(uint16_t ms) { double_flick_window = ms; }
   
-  // Raw button state (kept for backward compatibility)
-  bool isButtonPressed() const { return button_pressed; }
-  
-  // Debug info
-  uint32_t getButtonPressDuration() const;
 
 private:
-  // Pin and state (legacy)
-  int pin_button;
-  bool button_pressed;
-  bool button_pressed_last;
-  
-  // Debounce (legacy)
-  uint32_t last_edge_ms;
-  
-  // Tap detection (legacy)
-  uint32_t tap_start_ms;
-  uint32_t tap_end_ms;
-  bool tap_in_progress;
-  
-  // Double-tap detection (legacy)
-  uint32_t first_tap_end_ms;
-  bool waiting_for_second_tap;
-  
   // Gyro flick detection (NEW)
   LSM6DS3* imu_ptr;
   uint32_t last_flick_ms;
-  uint32_t first_flick_ms;
-  bool waiting_for_second_flick;
+  uint32_t sequence_start_ms;
+  uint8_t flick_count;
   bool flick_reset;
   uint16_t gyro_threshold;
   uint16_t double_flick_window;
@@ -74,9 +55,6 @@ private:
   GestureType detected_gesture;
   bool gesture_reported;
   
-  // Helper methods
-  void _onButtonDown(uint32_t now_ms);
-  void _onButtonUp(uint32_t now_ms);
 };
 
 #endif // GESTURE_H

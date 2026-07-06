@@ -11,7 +11,7 @@ EEPROMManager::EEPROMManager()
 
 void EEPROMManager::begin() {
   // Initialize internal file system (nRF52840 flash)
-  InternalFS.begin();
+  // InternalFS is now initialized centrally in setup()
   initialized = true;
   
   // Try to load existing calibration
@@ -73,29 +73,35 @@ bool EEPROMManager::saveCalibration(uint8_t threshold) {
     return false;
   }
   
-  // Prepare data
+  // Prepare data - explicitly memset to 0 to eliminate padding gaps
   CalibrationData data;
+  memset(&data, 0, sizeof(data));
+  
   data.magic = EEPROM_CALIB_MAGIC;
   data.threshold = threshold;
-  data.timestamp = millis() / 1000;  // Timestamp in seconds
+  data.timestamp = last_calib_time + 1;  // Update sequence counter (Note: downstream logic must not treat this as wall-clock time)
   data.checksum = 0;
   data.checksum = _calculateChecksum(data);
   
-  // Open file for writing (create if not exists, overwrite if exists)
+  // BUG-038: Write to temp file, then rename atomically.
+  const char* TMP_FILE = "calib.tmp";
+  InternalFS.remove(TMP_FILE);
+  
   File file(InternalFS);
-  if (!file.open("calib.dat", FILE_O_WRITE)) {
-    // Serial.println("[EEPROM] Failed to open calibration file for writing");
+  if (!file.open(TMP_FILE, FILE_O_WRITE)) {
     return false;
   }
   
-  // Write data
   if (file.write((const uint8_t*)&data, sizeof(data)) != sizeof(data)) {
     file.close();
-    // Serial.println("[EEPROM] Failed to write calibration data");
+    InternalFS.remove(TMP_FILE);
     return false;
   }
-  
   file.close();
+  
+  if (!InternalFS.rename(TMP_FILE, "calib.dat")) {
+    return false;
+  }
   
   calib_data = data;
   last_calib_time = data.timestamp;
@@ -125,9 +131,9 @@ uint8_t EEPROMManager::_calculateChecksum(const CalibrationData& data) {
   uint8_t sum = 0;
   const uint8_t* ptr = (const uint8_t*)&data;
   
-  // Sum all bytes except checksum field (last byte)
-  for (size_t i = 0; i < sizeof(data) - 1; i++) {
-    sum += ptr[i];
+  // Sum all bytes except checksum field using offsetof
+  for (size_t i = 0; i < offsetof(CalibrationData, checksum); i++) {
+    sum ^= ptr[i];
   }
   
   return sum;

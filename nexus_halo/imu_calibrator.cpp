@@ -8,7 +8,10 @@ IMUCalibrator::IMUCalibrator()
     current_gesture_max(0),
     gesture_start_ms(0),
     in_gesture(false),
-    last_accel_magnitude(0),
+    prev_x(0),
+    prev_y(0),
+    prev_z(0),
+    last_motion_ms(0),
     calculated_threshold(IMU_WAKE_UP_THS_DEFAULT),
     imu_ptr(nullptr)  // Initialize pointer to null
 {
@@ -25,7 +28,10 @@ void IMUCalibrator::begin() {
   current_gesture_max = 0;
   gesture_start_ms = 0;
   in_gesture = false;
-  last_accel_magnitude = 0;
+  prev_x = 0;
+  prev_y = 0;
+  prev_z = 0;
+  last_motion_ms = 0;
   
   // IMU should already be initialized in setup()
   // No need to initialize Wire or IMU here since imu_ptr is set externally
@@ -43,8 +49,8 @@ void IMUCalibrator::update(uint32_t now_ms) {
     return;
   }
   
-  // Read IMU at ~10Hz during calibration
-  if ((now_ms - last_reading_ms) < 100) {
+  // Read IMU at ~100Hz during calibration
+  if ((now_ms - last_reading_ms) < 10) {
     return;  // Not time yet
   }
   last_reading_ms = now_ms;
@@ -58,10 +64,13 @@ void IMUCalibrator::update(uint32_t now_ms) {
   float accel_y = imu_ptr->readFloatAccelY();
   float accel_z = imu_ptr->readFloatAccelZ();
   
-  float accel_mag = _calculateAccelMagnitude(accel_x, accel_y, accel_z);
-  
-  // Subtract gravity (approx 1.0g) to get dynamic acceleration
-  float dynamic_accel = abs(accel_mag - 1.0f);
+  float delta_x = fabs(accel_x - prev_x);
+  float delta_y = fabs(accel_y - prev_y);
+  float delta_z = fabs(accel_z - prev_z);
+  float dynamic_accel = (prev_x == 0 && prev_y == 0 && prev_z == 0) ? 0 : fmax(delta_x, fmax(delta_y, delta_z));
+  prev_x = accel_x;
+  prev_y = accel_y;
+  prev_z = accel_z;
   
   // Check if gesture is active
   if (_isGestureActive(dynamic_accel, now_ms)) {
@@ -84,7 +93,7 @@ void IMUCalibrator::update(uint32_t now_ms) {
     }
   }
   
-  last_accel_magnitude = accel_mag;
+  // removed last_accel_magnitude
 }
 
 float IMUCalibrator::_calculateAccelMagnitude(float x, float y, float z) {
@@ -98,13 +107,14 @@ bool IMUCalibrator::_isGestureActive(float dynamic_accel, uint32_t now_ms) {
   // 2. We're already recording and haven't gone below threshold for 200ms
   
   if (dynamic_accel >= (CALIBRATION_MIN_ACCEL_MG / 1000.0f)) {
+    last_motion_ms = now_ms;
     return true;  // Strong motion
   }
   
   if (in_gesture) {
-    // Check if gesture has ended (low motion for 200ms)
-    if ((now_ms - gesture_start_ms) > 200) {
-      return (dynamic_accel >= (CALIBRATION_MIN_ACCEL_MG / 1000.0f * 0.5f));
+    if ((now_ms - gesture_start_ms) > 2000) return false;  // BUG-036: max 2s gesture duration
+    if ((now_ms - last_motion_ms) > 200) {
+      return false;
     }
     return true;  // Still in potential gesture window
   }
@@ -128,7 +138,7 @@ void IMUCalibrator::_recordGestureEnd() {
     if (samples_captured >= CALIBRATION_NUM_SAMPLES) {
       // Serial.println("[CALIB] All samples captured!");
       finalize();
-      return;
+      return;  // BUG-035: Must not fall through to in_gesture = false after finalize()
     }
   }
   
@@ -175,7 +185,7 @@ uint8_t IMUCalibrator::_calculateOptimalThreshold() {
   // At ±2G range: 1 LSB = 62.5mg (nominal scale for settings)
   // threshold_reg = threshold_mg / 62.5
   
-  float threshold_reg_f = threshold_mg / 62.5f;
+  float threshold_reg_f = threshold_mg / 31.25f;
   uint8_t threshold_reg = (uint8_t)threshold_reg_f;
 
   

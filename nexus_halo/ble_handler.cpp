@@ -6,36 +6,43 @@ uint8_t const BLE_SERVICE_UUID_128[16] = {
   0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82,
   0x1B, 0x4E, 0x2D, 0x5F, 0x0A, 0x18, 0x5C, 0x4A
 };
-#define BLE_BEARING_UUID          0x2A58
-#define BLE_DISTANCE_UUID         0x2A59
-#define BLE_HAPTIC_TX_UUID        0x2A5A
-#define BLE_HAPTIC_RX_UUID        0x2A5B
+uint8_t const BLE_BEARING_UUID_128[16] = {
+  0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x58, 0x2A, 0x5C, 0x4A
+};
+uint8_t const BLE_DISTANCE_UUID_128[16] = {
+  0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x59, 0x2A, 0x5C, 0x4A
+};
+uint8_t const BLE_HAPTIC_TX_UUID_128[16]       = { 0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x5A, 0x2A, 0x5C, 0x4A };
+uint8_t const BLE_HAPTIC_RX_UUID_128[16]       = { 0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x5B, 0x2A, 0x5C, 0x4A };
 #define BLE_BATTERY_UUID          0x2A19
-#define BLE_RADAR_MODE_UUID       0x2A5F
-#define BLE_CONFIG_UUID           0x2A60
-#define BLE_CALIB_CMD_UUID        0x2A5C
-#define BLE_CALIB_STATUS_UUID     0x2A5D
-#define BLE_CALIB_THRESHOLD_UUID  0x2A5E
-#define BLE_OTA_UUID              0x2A61
-#define BLE_TIME_SYNC_UUID        0x2A2B  // Current Time — write-only (Unix uint32 LE)
+uint8_t const BLE_RADAR_MODE_UUID_128[16]      = { 0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x5F, 0x2A, 0x5C, 0x4A };
+uint8_t const BLE_CONFIG_UUID_128[16]          = { 0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x60, 0x2A, 0x5C, 0x4A };
+uint8_t const BLE_CALIB_CMD_UUID_128[16]       = { 0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x5C, 0x2A, 0x5C, 0x4A };
+uint8_t const BLE_CALIB_STATUS_UUID_128[16]    = { 0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x5D, 0x2A, 0x5C, 0x4A };
+uint8_t const BLE_CALIB_THRESHOLD_UUID_128[16] = { 0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x5E, 0x2A, 0x5C, 0x4A };
+uint8_t const BLE_OTA_UUID_128[16]             = { 0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x61, 0x2A, 0x5C, 0x4A };
+uint8_t const BLE_TIME_SYNC_UUID_128[16] = {
+  0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x2B, 0x2A, 0x5C, 0x4A
+};
 
 BLEHandler* BLEHandler::instance = nullptr;
 
 BLEHandler::BLEHandler()
   : ble_connected(false),
+    ble_init_ok(false),
     service(BLE_SERVICE_UUID_128),
-    bearing_char(BLE_BEARING_UUID),
-    distance_char(BLE_DISTANCE_UUID),
-    haptic_tx_char(BLE_HAPTIC_TX_UUID),
-    haptic_rx_char(BLE_HAPTIC_RX_UUID),
-    radar_mode_char(BLE_RADAR_MODE_UUID),
-    config_char(BLE_CONFIG_UUID),
+    bearing_char(BLE_BEARING_UUID_128),
+    distance_char(BLE_DISTANCE_UUID_128),
+    haptic_tx_char(BLE_HAPTIC_TX_UUID_128),
+    haptic_rx_char(BLE_HAPTIC_RX_UUID_128),
+    radar_mode_char(BLE_RADAR_MODE_UUID_128),
+    config_char(BLE_CONFIG_UUID_128),
     battery_char(BLE_BATTERY_UUID),
-    calib_cmd_char(BLE_CALIB_CMD_UUID),
-    calib_status_char(BLE_CALIB_STATUS_UUID),
-    calib_threshold_char(BLE_CALIB_THRESHOLD_UUID),
-    ota_char(BLE_OTA_UUID),
-    time_sync_char(BLE_TIME_SYNC_UUID),
+    calib_cmd_char(BLE_CALIB_CMD_UUID_128),
+    calib_status_char(BLE_CALIB_STATUS_UUID_128),
+    calib_threshold_char(BLE_CALIB_THRESHOLD_UUID_128),
+    ota_char(BLE_OTA_UUID_128),
+    time_sync_char(BLE_TIME_SYNC_UUID_128),
     last_bearing(0),
     last_distance(0),
     radar_mode_requested(false),
@@ -47,6 +54,8 @@ BLEHandler::BLEHandler()
     callback_calib_start(nullptr),
     callback_calib_end(nullptr),
     callback_calib_cancel(nullptr),
+    callback_compass_calib_start(nullptr),
+    callback_threshold_write(nullptr),
     callback_ota_request(nullptr),
     callback_time_sync(nullptr)
 {
@@ -55,9 +64,13 @@ BLEHandler::BLEHandler()
 }
 
 void BLEHandler::begin() {
+  Bluefruit.configPrphBandwidth(BANDWIDTH_MAX); // Request up to 247 MTU
   if (!Bluefruit.begin()) {
+    Serial.println("[BLE] ✗ Bluefruit.begin() failed");
+    ble_init_ok = false;
     return;
   }
+  ble_init_ok = true;
   
   Bluefruit.setName(BLE_DEVICE_NAME);
   Bluefruit.Periph.setConnectCallback(connect_callback);
@@ -100,9 +113,9 @@ void BLEHandler::begin() {
   radar_mode_char.begin();
 
   // Config: read, write (max 256)
-  config_char.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE);
+  config_char.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE | CHR_PROPS_NOTIFY);
   config_char.setPermission(SECMODE_OPEN, SECMODE_OPEN);
-  config_char.setMaxLen(255);
+  config_char.setMaxLen(sizeof(config_json_buf) - 1);
   config_char.setWriteCallback(write_callback);
   config_char.begin();
 
@@ -122,7 +135,7 @@ void BLEHandler::begin() {
   // Calib Status: read, notify
   calib_status_char.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
   calib_status_char.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-  calib_status_char.setFixedLen(1);
+  calib_status_char.setFixedLen(2);
   calib_status_char.begin();
 
   // Calib Threshold: read, write, notify
@@ -140,10 +153,10 @@ void BLEHandler::begin() {
   ota_char.setWriteCallback(write_callback);
   ota_char.begin();
 
-  // Time Sync: write-only (app sends uint32 Unix timestamp, little-endian)
+  // Time Sync: write-only (app sends uint32 Unix timestamp + int32 tz offset, little-endian)
   time_sync_char.setProperties(CHR_PROPS_WRITE);
-  time_sync_char.setPermission(SECMODE_OPEN, SECMODE_OPEN);
-  time_sync_char.setFixedLen(4);
+  time_sync_char.setPermission(SECMODE_NO_ACCESS, SECMODE_OPEN);
+  time_sync_char.setFixedLen(8);
   time_sync_char.setWriteCallback(write_callback);
   time_sync_char.begin();
 
@@ -154,6 +167,7 @@ void BLEHandler::begin() {
   distance_char.write(&zero_u32, 4);
   uint8_t batt = 100;
   battery_char.write(&batt, 1);
+  calib_threshold_char.write(&calib_threshold, 1);
 
   // Setup advertising
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
@@ -170,23 +184,29 @@ void BLEHandler::begin() {
 }
 
 void BLEHandler::update() {
-  // Callbacks handle events in Bluefruit
+  if (ble_connected && !conn_param_requested && (millis() - conn_timestamp >= 500)) {
+    conn_param_requested = true;
+    BLEConnection* conn = Bluefruit.Connection(active_conn_handle);
+    if (conn) {
+      // 84 * 1.25ms = 105ms (multiple of 15ms). Args: min, max, latency, timeout
+      conn->requestConnectionParameter(84, 84, 0, 400); 
+    }
+  }
 }
 
 void BLEHandler::setLowPowerAdvertising(bool enabled) {
-  if (ble_connected)
-    return;
-
+  if (!ble_init_ok) return;
   Serial.print("[BLE] Adjusting advertising interval. Low-power mode: ");
   Serial.println(enabled ? "ENABLED" : "DISABLED");
 
-  // We must stop advertising before changing the interval, and then restart
-  Bluefruit.Advertising.stop();
-
   uint32_t interval_ms = enabled ? BLE_ADVERTISING_INTERVAL_MS_SLEEP : BLE_ADVERTISING_INTERVAL_MS;
   uint32_t interval_units = (interval_ms * 8) / 5; // Convert ms to 0.625ms units
-  
   Bluefruit.Advertising.setInterval(interval_units, interval_units);
+
+  if (ble_connected) return;
+
+  // We must stop advertising before changing the interval, and then restart
+  Bluefruit.Advertising.stop();
   Bluefruit.Advertising.start(0);
 }
 
@@ -204,13 +224,9 @@ void BLEHandler::write_callback(uint16_t conn_handle, BLECharacteristic* chr, ui
 
 void BLEHandler::_onConnect(uint16_t conn_handle) {
   ble_connected = true;
-  
-  // Pedir connection interval de 100ms para reducir colisiones con pixels.show()
-  // El SoftDevice ocupará la radio solo 10 veces/segundo en vez de 133
-  BLEConnection* conn = Bluefruit.Connection(conn_handle);
-  if (conn) {
-    conn->requestConnectionParameter(80); // 80 * 1.25ms = 100ms
-  }
+  active_conn_handle = conn_handle;
+  conn_timestamp = millis();
+  conn_param_requested = false;
 }
 
 void BLEHandler::_onDisconnect(uint16_t conn_handle, uint8_t reason) {
@@ -220,13 +236,21 @@ void BLEHandler::_onDisconnect(uint16_t conn_handle, uint8_t reason) {
 void BLEHandler::_onWrite(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
   if (!data || len == 0) return;
 
-  if (chr == &bearing_char && len == 4) {
-    memcpy(&last_bearing, data, 4);
-    if (callback_bearing_update) callback_bearing_update(last_bearing);
+  if (chr == &bearing_char) {
+    Serial.print("[BLE] Bearing write received. Len: ");
+    Serial.println(len);
+    if (len == 4) {
+      memcpy(&last_bearing, data, 4);
+      if (callback_bearing_update) callback_bearing_update(last_bearing);
+    }
   }
-  else if (chr == &distance_char && len == 4) {
-    memcpy(&last_distance, data, 4);
-    if (callback_distance_update) callback_distance_update(last_distance);
+  else if (chr == &distance_char) {
+    Serial.print("[BLE] Distance write received. Len: ");
+    Serial.println(len);
+    if (len == 4) {
+      memcpy(&last_distance, data, 4);
+      if (callback_distance_update) callback_distance_update(last_distance);
+    }
   }
   else if (chr == &haptic_rx_char) {
     if (callback_haptic_rx) callback_haptic_rx();
@@ -237,8 +261,10 @@ void BLEHandler::_onWrite(uint16_t conn_handle, BLECharacteristic* chr, uint8_t*
   else if (chr == &config_char) {
     uint16_t copy_len = len;
     if (copy_len > sizeof(config_json_buf) - 1) copy_len = sizeof(config_json_buf) - 1;
+    noInterrupts();
     memcpy(config_json_buf, data, copy_len);
     config_json_buf[copy_len] = '\0';
+    interrupts();
     if (callback_config_update) callback_config_update();
   }
   else if (chr == &ota_char) {
@@ -249,57 +275,82 @@ void BLEHandler::_onWrite(uint16_t conn_handle, BLECharacteristic* chr, uint8_t*
     if (cmd == 0x01 && callback_calib_start) callback_calib_start();
     else if (cmd == 0x02 && callback_calib_end) callback_calib_end();
     else if (cmd == 0x03 && callback_calib_cancel) callback_calib_cancel();
+    else if (cmd == 0x04 && callback_compass_calib_start) callback_compass_calib_start();
   }
   else if (chr == &calib_threshold_char) {
     calib_threshold = data[0];
+    if (callback_threshold_write) callback_threshold_write(calib_threshold);
   }
-  else if (chr == &time_sync_char && len == 4) {
+  else if (chr == &time_sync_char && len == 8) {
     uint32_t unix_ts;
+    int32_t tz_offset;
     memcpy(&unix_ts, data, 4);
-    if (callback_time_sync) callback_time_sync(unix_ts);
+    memcpy(&tz_offset, data + 4, 4);
+    if (callback_time_sync) callback_time_sync(unix_ts, tz_offset);
   }
 }
 
 void BLEHandler::notifyCalibStatus(uint8_t samples_done, uint8_t total_samples) {
-  uint8_t progress = samples_done;
-  calib_status_char.write(&progress, 1);
-  if (ble_connected) calib_status_char.notify(&progress, 1);
+  if (!ble_init_ok) return;
+  uint8_t payload[2] = {samples_done, total_samples};
+  calib_status_char.write(payload, 2);
+  if (ble_connected) calib_status_char.notify(payload, 2);
 }
 
 
 void BLEHandler::notifyCalibThreshold(uint8_t threshold) {
+  if (!ble_init_ok) return;
   calib_threshold_char.write(&threshold, 1);
   if (ble_connected) calib_threshold_char.notify(&threshold, 1);
   calib_threshold = threshold;
 }
 
 void BLEHandler::notifyBattery(uint8_t percent) {
+  if (!ble_init_ok) return;
   battery_char.write(&percent, 1);
   if (ble_connected) battery_char.notify(&percent, 1);
 }
 
 void BLEHandler::notifyRadarModeActive(bool active) {
+  if (!ble_init_ok) return;
+  radar_mode_requested = active;
   uint8_t val = active ? 0x01 : 0x00;
   radar_mode_char.write(&val, 1);
   if (ble_connected) radar_mode_char.notify(&val, 1);
 }
 
 void BLEHandler::notifyHapticTX() {
+  if (!ble_init_ok) return;
   uint8_t val = 0x01;
   haptic_tx_char.write(&val, 1);
   if (ble_connected) haptic_tx_char.notify(&val, 1);
 }
 
 void BLEHandler::notifyBearing(float bearing) {
+  if (!ble_init_ok) return;
   bearing_char.write(&bearing, 4);
   if (ble_connected) bearing_char.notify(&bearing, 4);
 }
 
 void BLEHandler::notifyDistance(uint32_t distance_m) {
+  if (!ble_init_ok) return;
   distance_char.write(&distance_m, 4);
   if (ble_connected) distance_char.notify(&distance_m, 4);
 }
 
 const char* BLEHandler::getConfigJson() const {
   return config_json_buf;
+}
+
+void BLEHandler::notifyConfig(const char* json) {
+  if (!ble_init_ok) return;
+  if (!json) return;
+  uint16_t len = strlen(json);
+  if (len > sizeof(config_json_buf) - 1) len = sizeof(config_json_buf) - 1;
+  memcpy(config_json_buf, json, len);
+  config_json_buf[len] = '\0';
+  config_char.write(config_json_buf, len);
+  if (ble_connected) {
+    config_char.notify(config_json_buf, len);
+  }
 }

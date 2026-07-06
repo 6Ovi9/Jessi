@@ -21,6 +21,7 @@ public:
   
   // Get connection status
   bool isConnected() const { return ble_connected; }
+  bool beginOk() const { return ble_init_ok; }  // BUG-016
   
   // Send data to mobile
   void notifyBattery(uint8_t percent);
@@ -37,6 +38,8 @@ public:
   typedef void (*CalibStartCallback)(void);
   typedef void (*CalibEndCallback)(void);
   typedef void (*CalibCancelCallback)(void);
+  typedef void (*CompassCalibStartCallback)(void);
+  typedef void (*ThresholdWriteCallback)(uint8_t threshold);
   
   void onHapticRX(HapticRXCallback cb) { callback_haptic_rx = cb; }
   void onBearingUpdate(BearingUpdateCallback cb) { callback_bearing_update = cb; }
@@ -45,9 +48,11 @@ public:
   void onCalibStart(CalibStartCallback cb) { callback_calib_start = cb; }
   void onCalibEnd(CalibEndCallback cb) { callback_calib_end = cb; }
   void onCalibCancel(CalibCancelCallback cb) { callback_calib_cancel = cb; }
+  void onCompassCalibStart(CompassCalibStartCallback cb) { callback_compass_calib_start = cb; }
+  void onThresholdWrite(ThresholdWriteCallback cb) { callback_threshold_write = cb; }
 
   // Time sync: app sends Unix timestamp on connect (uint32, seconds since epoch)
-  typedef void (*TimeSyncCallback)(uint32_t unix_timestamp);
+  typedef void (*TimeSyncCallback)(uint32_t unix_ts, int32_t tz_offset);
   void onTimeSync(TimeSyncCallback cb) { callback_time_sync = cb; }
   
   // Get latest values
@@ -62,6 +67,7 @@ public:
   
   // Config access (returns last JSON string received from app)
   const char* getConfigJson() const;
+  void notifyConfig(const char* json);
 
   // Power management support
   void setLowPowerAdvertising(bool enabled);
@@ -76,8 +82,13 @@ public:
   void _onWrite(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len);
 
 private:
+  uint32_t conn_timestamp;
+  uint16_t active_conn_handle;
+  bool conn_param_requested;
+
   // BLE state
   bool ble_connected;
+  bool ble_init_ok;  // BUG-016: tracks whether Bluefruit.begin() succeeded
   
   // BLE Services and Characteristics
   BLEService service;
@@ -115,8 +126,10 @@ private:
   CalibStartCallback callback_calib_start;
   CalibEndCallback callback_calib_end;
   CalibCancelCallback callback_calib_cancel;
+  CompassCalibStartCallback callback_compass_calib_start;
+  ThresholdWriteCallback callback_threshold_write;
   OTARequestCallback callback_ota_request;
-  void (*callback_time_sync)(uint32_t unix_timestamp);  // TimeSyncCallback
+  TimeSyncCallback callback_time_sync;
   
   static BLEHandler* instance;
   static void connect_callback(uint16_t conn_handle);

@@ -127,10 +127,33 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
   String? _tempSelectedRole;
   bool _showUserRoleSelection = false;
 
+  PartnerRepository? _partnerRepo;
+
   @override
   void initState() {
     super.initState();
+    _partnerRepo = context.read<PartnerRepository>();
     _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _partnerRepo?.removeListener(_updateLocationIntervals);
+    super.dispose();
+  }
+
+  void _updateLocationIntervals() {
+    if (!mounted) return;
+    final partnerRepo = context.read<PartnerRepository>();
+    final locationService = context.read<LocationService>();
+    final config = partnerRepo.config ?? WatchConfig.defaultFor(_selectedUserRole!);
+    locationService.setPollingIntervals(
+      precisionS: config.gpsIntervalPrecisionS,
+      nearS: config.gpsIntervalNearS,
+      farS: config.gpsIntervalFarS,
+      remoteMinS: config.gpsIntervalRemoteMinS,
+      remoteMaxS: config.gpsIntervalRemoteMaxS,
+    );
   }
 
   Future<void> _bootstrap() async {
@@ -163,37 +186,43 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
 
       // 1. Inicializar repositorio y sync (con timeout)
       setState(() => _bootStep = 'Conectando al servidor...');
-      await partnerRepo.initialize(_selectedUserRole!)
-          .timeout(const Duration(seconds: 8));
-      
-      setState(() => _bootStep = 'Sincronizando...');
-      await syncService.initialize(_selectedUserRole!)
-          .timeout(const Duration(seconds: 8));
+      try {
+        await partnerRepo.initialize(_selectedUserRole!)
+            .timeout(const Duration(seconds: 8));
+      } catch (e) {
+        print('[APP] partnerRepo init failed (offline mode): $e');
+      }
 
-      // Limpiar eventos hápticos antiguos en segundo plano
-      syncService.cleanupOldHapticEvents();
+      setState(() => _bootStep = 'Sincronizando...');
+      try {
+        await syncService.initialize(_selectedUserRole!)
+            .timeout(const Duration(seconds: 8));
+        syncService.cleanupOldHapticEvents();
+      } catch (e) {
+        print('[APP] syncService init failed (offline mode): $e');
+      }
 
       // 2. Cargar configuración y aplicar intervalos de polling
       setState(() => _bootStep = 'Cargando configuración...');
-      final config = partnerRepo.config ?? WatchConfig.defaultFor(_selectedUserRole!);
-      locationService.setPollingIntervals(
-        precisionS: config.gpsIntervalPrecisionS,
-        nearS: config.gpsIntervalNearS,
-        farS: config.gpsIntervalFarS,
-        remoteMinS: config.gpsIntervalRemoteMinS,
-        remoteMaxS: config.gpsIntervalRemoteMaxS,
-      );
+      
+      partnerRepo.removeListener(_updateLocationIntervals);
+      partnerRepo.addListener(_updateLocationIntervals);
+      _updateLocationIntervals();
 
       // 3. Conectar callbacks entre servicios
 
       // GPS → Supabase: subir ubicación propia
       locationService.onLocationUpdate = (position, bearing, distanceM) {
-        syncService.uploadLocation(position, locationService.currentMode.label);
+        try {
+          syncService.uploadLocation(position, locationService.currentMode.label);
+        } catch (e) {
+          print('[APP] Error uploading location: $e');
+        }
 
         // GPS → BLE: enviar bearing y distancia al reloj
         if (bleService.connectionState == BleConnectionState.connected) {
-          bleService.writeBearing(bearing);
-          bleService.writeDistance(distanceM);
+          bleService.writeBearing(bearing).catchError((e) => print('[BLE] Bearing error: $e'));
+          bleService.writeDistance(distanceM).catchError((e) => print('[BLE] Distance error: $e'));
         }
 
         // Actualizar notificación del Foreground Service
@@ -253,7 +282,11 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
     } catch (e, stack) {
       print('[APP] Bootstrap error: $e');
       print('[APP] Stack: $stack');
-      setState(() => _bootError = e.toString());
+      setState(() {
+        _bootError = e.toString();
+        _initialized = false;
+      });
+      return; // Skip setting _initialized = true to block HomeScreen
     }
 
     setState(() => _initialized = true);
@@ -303,6 +336,11 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
                     style: const TextStyle(fontSize: 12, color: Colors.redAccent),
                     textAlign: TextAlign.center,
                   ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _bootstrap,
+                  child: const Text('Reintentar'),
                 ),
               ],
             ],
@@ -418,6 +456,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
                     : () async {
                         final prefs = await SharedPreferences.getInstance();
                         await prefs.setString('user_role', _tempSelectedRole!);
+                        if (!mounted) return;
                         setState(() {
                           _showUserRoleSelection = false;
                           _initialized = false;
