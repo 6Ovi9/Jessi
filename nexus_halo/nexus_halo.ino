@@ -636,7 +636,7 @@ void loop() {
 #endif
 
     // Run deep sleep logic to either sleep CPU or process wakeup
-    handleStateDeepSleep(GESTURE_NONE);
+    handleStateDeepSleep(false, GESTURE_NONE);
     if (state_machine.getCurrentState() == STATE_DEEP_SLEEP) {
       state_machine.clearStateChanged();
       return;

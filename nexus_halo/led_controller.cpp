@@ -109,9 +109,9 @@ uint8_t LEDController::_brightnessFromPct(uint8_t pct) const {
 void LEDController::_updatePWMBuffer() {
   int idx = 0;
   for (int i = 0; i < LED_COUNT; i++) {
-    // GRBW channel order: SK6812MINI-E expects Green, Red, Blue, White on the wire
-    uint8_t c[4] = { g_buf[i], r_buf[i], b_buf[i], w_buf[i] };
-    for (int ch = 0; ch < 4; ch++) {
+    // GRB channel order: SK6812MINI-E expects Green, Red, Blue on the wire
+    uint8_t c[3] = { g_buf[i], r_buf[i], b_buf[i] };
+    for (int ch = 0; ch < 3; ch++) {
       for (int bit = 7; bit >= 0; bit--) {
         // PWM_POLARITY_BIT (0x8000) selects "start HIGH, go LOW at compare count".
         // Without it the nRF52 PWM peripheral uses the opposite polarity and the
@@ -121,7 +121,7 @@ void LEDController::_updatePWMBuffer() {
     }
   }
   // Reset gap: compare=0 with polarity bit → pin stays LOW for 250µs
-  while (idx < (LED_COUNT * 32 + PWM_RESET_WORDS)) {
+  while (idx < (LED_COUNT * 24 + PWM_RESET_WORDS)) {
     pwm_buffer[idx++] = PWM_POLARITY_BIT; // 0 compare | polarity = LOW
   }
 }
@@ -135,7 +135,7 @@ void LEDController::show() {
   NRF_PWM1->ENABLE = 1;
 
   NRF_PWM1->SEQ[0].PTR      = (uint32_t)(pwm_buffer);
-  NRF_PWM1->SEQ[0].CNT      = (LED_COUNT * 32 + PWM_RESET_WORDS); // count of 16-bit halfwords
+  NRF_PWM1->SEQ[0].CNT      = (LED_COUNT * 24 + PWM_RESET_WORDS); // count of 16-bit halfwords
   NRF_PWM1->SEQ[0].REFRESH  = 0;
   NRF_PWM1->SEQ[0].ENDDELAY = 0;
 
@@ -170,7 +170,8 @@ void LEDController::clear() {
 
 void LEDController::setLED(uint8_t index, uint32_t color) {
   if (index >= LED_COUNT || !power_on) return;
-  uint8_t physical_index = index % LED_COUNT; 
+  // LEDs are placed counter-clockwise on the PCB. We reverse the index so logical '1' is 1 o'clock.
+  uint8_t physical_index = (LED_COUNT - (index % LED_COUNT)) % LED_COUNT; 
   r_buf[physical_index] = getRed(color);
   g_buf[physical_index] = getGreen(color);
   b_buf[physical_index] = getBlue(color);
@@ -179,7 +180,8 @@ void LEDController::setLED(uint8_t index, uint32_t color) {
 
 void LEDController::setLEDBrightness(uint8_t index, uint32_t color, uint8_t brightness) {
   if (index >= LED_COUNT || !power_on) return;
-  uint8_t physical_index = index % LED_COUNT; 
+  // LEDs are placed counter-clockwise on the PCB. We reverse the index so logical '1' is 1 o'clock.
+  uint8_t physical_index = (LED_COUNT - (index % LED_COUNT)) % LED_COUNT; 
   r_buf[physical_index] = (getRed(color) * brightness) / 255;
   g_buf[physical_index] = (getGreen(color) * brightness) / 255;
   b_buf[physical_index] = (getBlue(color) * brightness) / 255;
@@ -188,7 +190,8 @@ void LEDController::setLEDBrightness(uint8_t index, uint32_t color, uint8_t brig
 
 void LEDController::addLEDBrightness(uint8_t index, uint32_t color, uint8_t brightness) {
   if (index >= LED_COUNT || !power_on) return;
-  uint8_t physical_index = index % LED_COUNT; 
+  // LEDs are placed counter-clockwise on the PCB. We reverse the index so logical '1' is 1 o'clock.
+  uint8_t physical_index = (LED_COUNT - (index % LED_COUNT)) % LED_COUNT; 
   uint16_t nr = r_buf[physical_index] + (getRed(color) * brightness) / 255;
   uint16_t ng = g_buf[physical_index] + (getGreen(color) * brightness) / 255;
   uint16_t nb = b_buf[physical_index] + (getBlue(color) * brightness) / 255;
