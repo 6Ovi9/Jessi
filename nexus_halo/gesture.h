@@ -50,6 +50,7 @@ private:
   bool flick_reset;
   uint16_t gyro_threshold;
   uint16_t double_flick_window;
+  uint8_t tear_debounce;
   
   // Gesture result
   GestureType detected_gesture;

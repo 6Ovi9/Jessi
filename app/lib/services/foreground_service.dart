@@ -72,7 +72,7 @@ class ForegroundService {
       );
 
       print('[FG] Service started: $result');
-      return true;
+      return result;
     } catch (e) {
       print('[FG] Service start failed: $e');
       return false;

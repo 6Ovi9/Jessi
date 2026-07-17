@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
@@ -21,15 +22,14 @@ import 'services/sync_service.dart';
 
 /// URL del backend Supabase.
 /// Cambiar a la IP de Tailscale de tu PC: http://100.x.x.x:8000
-const String supabaseUrl = 'http://100.103.87.29:8000';
+final String supabaseUrl = dotenv.env['SUPABASE_URL']!;
 
 /// Anon key de Supabase.
 /// IMPORTANTE: No puedes usar el JWT_SECRET directamente aquí. Debes generar un JWT
 /// firmado con ese secreto que contenga el rol "anon".
 /// Ejemplo usando Node.js (jsonwebtoken):
 /// jwt.sign({ role: 'anon', iss: 'supabase' }, 'TU_JWT_SECRET', { expiresIn: '10y' })
-const String supabaseAnonKey =
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9.3B1Uvi60MBpMQhXe8MAXU8oyuByp6sZJKib_8mYj3jw';
+final String supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY']!;
 
 // El ID de usuario actual se determina dinámicamente desde SharedPreferences.
 
@@ -37,6 +37,8 @@ const String supabaseAnonKey =
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  await dotenv.load(fileName: '.env');
 
   // Lock portrait orientation
   await SystemChrome.setPreferredOrientations([
@@ -132,6 +134,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
   bool _showUserRoleSelection = false;
 
   PartnerRepository? _partnerRepo;
+  Future<void>? _bootstrapFuture;
 
   @override
   void initState() {
@@ -155,6 +158,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
 
   void _updateLocationIntervals() {
     if (!mounted) return;
+    if (_selectedUserRole == null) return;
     final partnerRepo = context.read<PartnerRepository>();
     final locationService = context.read<LocationService>();
     final config = partnerRepo.config ?? WatchConfig.defaultFor(_selectedUserRole!);
@@ -167,7 +171,16 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
     );
   }
 
-  Future<void> _bootstrap() async {
+  Future<void> _bootstrap() {
+    if (_bootstrapFuture != null) return _bootstrapFuture!;
+    _bootstrapFuture = _doBootstrap().catchError((e) {
+      _bootstrapFuture = null;
+      throw e;
+    });
+    return _bootstrapFuture!;
+  }
+
+  Future<void> _doBootstrap() async {
     setState(() {
       _bootError = null;
       _bootStep = 'Inicializando...';
@@ -183,6 +196,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
 
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
       final role = prefs.getString('user_role');
 
       if (role == null) {
@@ -203,6 +217,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       } catch (e) {
         print('[APP] partnerRepo init failed (offline mode): $e');
       }
+      if (!mounted) return;
 
       setState(() => _bootStep = 'Sincronizando...');
       try {
@@ -212,6 +227,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       } catch (e) {
         print('[APP] syncService init failed (offline mode): $e');
       }
+      if (!mounted) return;
 
       // 2. Cargar configuración y aplicar intervalos de polling
       setState(() => _bootStep = 'Cargando configuración...');
@@ -258,8 +274,8 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       };
 
       // BLE → GPS: reloj entra/sale de RADAR_MODE → ajustar polling
-      bleService.onRadarModeChanged = (bool active) {
-        locationService.setRadarModeActive(active);
+      bleService.onRadarModeChanged = (bool active) async {
+        await locationService.setRadarModeActive(active);
       };
 
       // 4. Obtener última ubicación conocida de la pareja
@@ -274,13 +290,16 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       } catch (e) {
         print('[APP] Could not fetch partner location: $e');
       }
+      if (!mounted) return;
 
       // 5. Iniciar Foreground Service
       setState(() => _bootStep = 'Iniciando servicios...');
       await fg.ForegroundService.start();
+      if (!mounted) return;
 
       // 6. Iniciar GPS
       await locationService.start();
+      if (!mounted) return;
 
       // 7. Auto-reconectar BLE si hay dispositivo guardado
       final savedDeviceId = prefs.getString('ble_device_id');
@@ -293,6 +312,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
     } catch (e, stack) {
       print('[APP] Bootstrap error: $e');
       print('[APP] Stack: $stack');
+      if (!mounted) return;
       setState(() {
         _bootError = e.toString();
         _initialized = false;
@@ -300,6 +320,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       return; // Skip setting _initialized = true to block HomeScreen
     }
 
+    if (!mounted) return;
     setState(() => _initialized = true);
   }
 

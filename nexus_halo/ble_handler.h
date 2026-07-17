@@ -79,19 +79,21 @@ public:
   typedef void (*OTARequestCallback)(void);
   void onOTARequest(OTARequestCallback cb) { callback_ota_request = cb; }
 
+  SemaphoreHandle_t json_mutex;
+
   // Expose these publicly so static callbacks can call them
   void _onConnect(uint16_t conn_handle);
   void _onDisconnect(uint16_t conn_handle, uint8_t reason);
   void _onWrite(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len);
 
 private:
-  uint32_t conn_timestamp;
-  uint16_t active_conn_handle;
+  volatile uint32_t conn_timestamp;
+  volatile uint16_t active_conn_handle;
   bool conn_param_requested;
-  bool imu_stream_requested;
+  volatile bool imu_stream_requested;
 
   // BLE state
-  bool ble_connected;
+  volatile bool ble_connected;
   bool ble_init_ok;  // BUG-016: tracks whether Bluefruit.begin() succeeded
   
   // BLE Services and Characteristics

@@ -373,6 +373,7 @@ class BleService extends ChangeNotifier {
 
     // Reintentar conexión después de 5 segundos con backoff exponencial
     final backoffSeconds = 5 * (1 << (_reconnectAttempt > 6 ? 6 : _reconnectAttempt - 1));
+    if (_retryTimer?.isActive ?? false) return;
     _retryTimer?.cancel();
     _retryTimer = Timer(Duration(seconds: backoffSeconds), () {
       if (_connectionState == BleConnectionState.disconnected &&
@@ -414,8 +415,18 @@ class BleService extends ChangeNotifier {
     print('[BLE] Disconnected');
   }
 
+  void _cancelAllSubscriptions() {
+    _hapticTxSubscription?.cancel(); _hapticTxSubscription = null;
+    _batterySubscription?.cancel(); _batterySubscription = null;
+    _calibStatusSubscription?.cancel(); _calibStatusSubscription = null;
+    _calibThresholdSubscription?.cancel(); _calibThresholdSubscription = null;
+    _radarModeSubscription?.cancel(); _radarModeSubscription = null;
+    _imuStreamSubscription?.cancel(); _imuStreamSubscription = null;
+  }
+
   /// Llamado al establecer conexión exitosa
-  void _onConnected(String deviceId) async {
+  Future<void> _onConnected(String deviceId) async {
+    _cancelAllSubscriptions();
     print('[BLE] Connected! Setting up subscriptions...');
 
     // Retry mechanism for GATT operations post-connection (Race Condition Fix)
@@ -566,16 +577,14 @@ class BleService extends ChangeNotifier {
   Future<void> _bleWriteQueue = Future<void>.value();
 
   Future<void> _enqueueWrite(Future<void> Function() writeOp) {
-    final completer = Completer<void>();
-    _bleWriteQueue = _bleWriteQueue.whenComplete(() async {
+    _bleWriteQueue = _bleWriteQueue.catchError((_) {}).then((_) async {
       try {
-        await writeOp();
-        completer.complete();
+        await writeOp().timeout(const Duration(seconds: 5));
       } catch (e) {
-        completer.completeError(e);
+        print('[BLE] Write error/timeout: $e');
       }
     });
-    return completer.future;
+    return _bleWriteQueue;
   }
 
   /// Sincronizar la hora real del reloj.
@@ -600,6 +609,8 @@ class BleService extends ChangeNotifier {
     final int tzOffset = now.timeZoneOffset.inSeconds;
 
     final bytes = ByteData(8);
+    // TODO(Y2038): nowEpoch is truncated to uint32. Firmware must be updated
+    // to accept a uint64 timestamp before this can be fixed safely.
     bytes.setUint32(0, nowEpoch, Endian.little);
     bytes.setInt32(4, tzOffset, Endian.little);
 
@@ -797,7 +808,7 @@ class BleService extends ChangeNotifier {
   // ── Calibración ────────────────────────────────────────────────────────
 
   Future<void> sendCalibCmd(int cmd) async {
-    if (_connectedDeviceId == null) return;
+    if (_connectionState != BleConnectionState.connected || _connectedDeviceId == null) return;
     try {
       final characteristic = QualifiedCharacteristic(
         serviceId: _serviceUuid,
@@ -824,7 +835,12 @@ class BleService extends ChangeNotifier {
       return;
     }
 
-    sendCalibCmd(0x01);
+    _subscribeToCalibStatus(_connectedDeviceId!);
+    try {
+      await sendCalibCmd(0x01).timeout(const Duration(seconds: 15));
+    } catch (e) {
+      print('[BLE] Calibration start timeout/error: $e');
+    }
     print('[BLE] Calibration START sent');
   }
 
@@ -837,6 +853,7 @@ class BleService extends ChangeNotifier {
 
     sendCalibCmd(0x03);
     _calibStatusSubscription?.cancel();
+    _calibStatusSubscription = null;
     print('[BLE] Calibration CANCEL sent');
   }
 
@@ -847,7 +864,11 @@ class BleService extends ChangeNotifier {
       return;
     }
 
-    sendCalibCmd(0x04);
+    try {
+      await sendCalibCmd(0x04).timeout(const Duration(seconds: 15));
+    } catch (e) {
+      print('[BLE] Compass calibration start timeout/error: $e');
+    }
     print('[BLE] Compass calibration START sent');
   }
 

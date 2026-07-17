@@ -883,105 +883,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ).then((_) => controller.dispose());
   }
 
-  Future<void> _startCalibration(BleService ble) async {
-    int progress = 0;
-    bool completed = false;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            ble.onCalibrationProgress = (samplesDone) {
-              setStateDialog(() {
-                progress = samplesDone;
-                if (progress >= 5) {
-                  completed = true;
-                }
-              });
-              if (progress >= 5) {
-                Future.delayed(const Duration(milliseconds: 1500), () {
-                  if (ctx.mounted) {
-                    Navigator.pop(ctx);
-                  }
-                });
-              }
-            };
-
-            return AlertDialog(
-              backgroundColor: const Color(0xFF121224),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              title: Row(
-                children: [
-                  const Icon(Icons.fitness_center_rounded, color: Color(0xFFBB88FF)),
-                  const SizedBox(width: 8),
-                  Text(
-                    completed ? '¡Calibración Completada!' : 'Calibrando...',
-                    style: const TextStyle(color: Colors.white, fontSize: 18),
-                  ),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 12),
-                  if (!completed) ...[
-                    const Text(
-                      'Realiza el gesto de levantar la muñeca para mirar la hora. Hazlo con normalidad 5 veces consecutivas.',
-                      style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Gesto $progress de 5 registrado',
-                      style: const TextStyle(
-                        color: Color(0xFFBB88FF),
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    LinearProgressIndicator(
-                      value: progress / 5.0,
-                      backgroundColor: Colors.white.withValues(alpha: 0.05),
-                      color: const Color(0xFFBB88FF),
-                      minHeight: 6,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ] else ...[
-                    const Icon(Icons.check_circle_rounded,
-                        color: Color(0xFF00CC88), size: 64),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Se ha calculado tu umbral óptimo y guardado en el reloj.',
-                      style: TextStyle(color: Colors.white70, fontSize: 13),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                ],
-              ),
-              actions: [
-                if (!completed)
-                  TextButton(
-                    onPressed: () {
-                      ble.cancelCalibration();
-                      Navigator.pop(ctx);
-                    },
-                    child: const Text('Cancelar',
-                        style: TextStyle(color: Colors.grey)),
-                  ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    await ble.startCalibration();
-  }
-
   Future<void> _changeUserRole(PartnerRepository repo) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -1012,6 +913,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (confirm == true) {
       final prefs = await SharedPreferences.getInstance();
+      if (repo.partnerUserId.isEmpty) return;
       await prefs.setString('user_role', repo.partnerUserId);
 
       if (mounted) {

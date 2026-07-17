@@ -127,9 +127,9 @@ void PowerManager::setupIMUForRiseToWake() {
   // 1. Disable Gyroscope to save power (CTRL2_G = 0x00 → off)
   _writeLSM6DS3Register(0x11, 0x00);
 
-  // 2. Enable Accelerometer in low-power mode at 12.5 Hz (CTRL1_XL = 0x10)
-  //    CTRL1_XL: ODR_XL=0001 (12.5Hz), FS_XL=00 (±2g), BW_XL=00
-  _writeLSM6DS3Register(0x10, 0x10);
+  // 2. Enable Accelerometer in low-power mode at 26 Hz (CTRL1_XL = 0x20)
+  //    CTRL1_XL: ODR_XL=0010 (26Hz), FS_XL=00 (±2g), BW_XL=00
+  _writeLSM6DS3Register(0x10, 0x20);
 
   // 3. Enable low-power mode (CTRL6_C bit LPM = 1)
   _writeLSM6DS3Register(0x15, 0x10);

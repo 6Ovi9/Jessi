@@ -69,6 +69,7 @@ BLEHandler::BLEHandler()
 }
 
 void BLEHandler::begin() {
+  json_mutex = xSemaphoreCreateMutex();
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX); // Request up to 247 MTU
   if (!Bluefruit.begin()) {
     Serial.println("[BLE] ✗ Bluefruit.begin() failed");
@@ -278,12 +279,13 @@ void BLEHandler::_onWrite(uint16_t conn_handle, BLECharacteristic* chr, uint8_t*
     radar_mode_requested = (data[0] == 0x01);
   }
   else if (chr == &config_char) {
-    uint16_t copy_len = len;
-    if (copy_len > sizeof(config_json_buf) - 1) copy_len = sizeof(config_json_buf) - 1;
-    noInterrupts();
-    memcpy(config_json_buf, data, copy_len);
-    config_json_buf[copy_len] = '\0';
-    interrupts();
+    if (len == 0 || !data || len >= sizeof(config_json_buf)) return;
+    if (xSemaphoreTake(json_mutex, portMAX_DELAY)) {
+      uint16_t copy_len = len < sizeof(config_json_buf) - 1 ? len : sizeof(config_json_buf) - 1;
+      memcpy(config_json_buf, data, copy_len);
+      config_json_buf[copy_len] = '\0';
+      xSemaphoreGive(json_mutex);
+    }
     if (callback_config_update) callback_config_update();
   }
   else if (chr == &ota_char) {

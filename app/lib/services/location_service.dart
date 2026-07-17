@@ -104,9 +104,11 @@ class LocationService extends ChangeNotifier {
     }
 
     if (shouldUpgradeToAlwaysPermission(isAndroid: Platform.isAndroid, permission: permission)) {
-      final upgradedPermission = await Geolocator.requestPermission();
-      if (upgradedPermission != LocationPermission.denied && upgradedPermission != LocationPermission.deniedForever) {
-        permission = upgradedPermission;
+      await Geolocator.openAppSettings();
+      // After returning from settings, re-check the permission
+      final upgraded = await Geolocator.checkPermission();
+      if (upgraded != LocationPermission.denied && upgraded != LocationPermission.deniedForever) {
+        permission = upgraded;
       }
     }
 
@@ -202,7 +204,7 @@ class LocationService extends ChangeNotifier {
   /// Notificar que el reloj entró/salió de RADAR_MODE.
   ///
   /// Si entra en RADAR, fuerza modo PRECISION inmediatamente.
-  void setRadarModeActive(bool active) {
+  Future<void> setRadarModeActive(bool active) async {
     if (_radarModeActive == active) return;
 
     _radarModeActive = active;
@@ -211,7 +213,7 @@ class LocationService extends ChangeNotifier {
     if (active) {
       // Forzar modo PRECISION y actualización inmediata
       _currentMode = GpsPollingMode.precision;
-      _doGpsUpdate();
+      await _doGpsUpdate();
       _scheduleNextUpdate();
     } else {
       // Recalcular modo según distancia actual
@@ -282,6 +284,7 @@ class LocationService extends ChangeNotifier {
       );
 
       _currentPosition = position;
+      if (!_isRunning) return;
       _updateCount++;
 
       // Recalcular bearing y distancia si tenemos ubicación de la pareja

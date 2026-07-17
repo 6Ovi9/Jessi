@@ -70,7 +70,7 @@ volatile uint8_t ble_new_threshold = IMU_WAKE_UP_THS_DEFAULT;
 const uint32_t LOOP_INTERVAL_MS = 10; // 100 Hz main loop
 
 // State variables
-bool ble_connected = false;
+volatile bool ble_connected = false;
 // BUG-003: BLE callbacks write these from ISR context — must be volatile so the
 // compiler never caches them in a register across the ISR boundary.
 volatile float current_bearing = 0;
@@ -465,10 +465,12 @@ void loop() {
   // clear and the getConfigJson() call, silently dropping the new config.
   if (config_update_pending) {
     char local_json[1024];
-    noInterrupts();
+    local_json[0] = '\0';
     config_update_pending = false;
-    strlcpy(local_json, ble_handler.getConfigJson(), sizeof(local_json));
-    interrupts();
+    if (xSemaphoreTake(ble_handler.json_mutex, portMAX_DELAY)) {
+      strlcpy(local_json, ble_handler.getConfigJson(), sizeof(local_json));
+      xSemaphoreGive(ble_handler.json_mutex);
+    }
     if (local_json[0] != '\0') {
       runtime_config.updateFromJson(local_json);
       Serial.println("[CONFIG] Config parsed and applied to RAM");
@@ -755,13 +757,8 @@ void loop() {
   // Manual calibration logging block removed
 #endif
 
-  static State last_handled_state = STATE_DEEP_SLEEP;
-  if (last_handled_state == state_machine.getCurrentState()) {
-    state_machine.clearStateChanged();
-  }
-  last_handled_state = state_machine.getCurrentState();
-
-  state_machine.update(now_ms);
+  bool is_entry = state_machine.stateChanged();
+  state_machine.clearStateChanged();
 
   // ========================================================================
   // STATE-SPECIFIC LOGIC & TRANSITIONS
@@ -770,58 +767,58 @@ void loop() {
   switch (state_machine.getCurrentState()) {
 
   case STATE_DEEP_SLEEP:
-    handleStateDeepSleep(gesture);
+    handleStateDeepSleep(is_entry, gesture);
     break;
 
   case STATE_WAKING_UP:
-    handleStateWakingUp();
+    handleStateWakingUp(is_entry);
     break;
 
   case STATE_CLOCK_CONNECTED:
-    handleStateClockConnected(gesture, now_ms);
+    handleStateClockConnected(is_entry, gesture, now_ms);
     break;
 
   case STATE_CLOCK_DISCONNECTED:
-    handleStateClockDisconnected(gesture, now_ms);
+    handleStateClockDisconnected(is_entry, gesture, now_ms);
     break;
 
   case STATE_RADAR_MODE:
-    handleStateRadarMode(gesture);
+    handleStateRadarMode(is_entry, gesture);
     break;
 
   case STATE_DISTANCE_MODE:
-    handleStateDistanceMode(gesture);
+    handleStateDistanceMode(is_entry, gesture);
     break;
 
   case STATE_HAPTIC_TX:
-    handleStateHapticTX();
+    handleStateHapticTX(is_entry);
     break;
 
   case STATE_HAPTIC_RX:
-    handleStateHapticRX(gesture);
+    handleStateHapticRX(is_entry, gesture);
     break;
 
   case STATE_ERROR_NO_GPS:
-    handleStateErrorNoGPS();
+    handleStateErrorNoGPS(is_entry);
     break;
 
   case STATE_CALIBRATION_MODE:
-    handleStateCalibration(gesture, now_ms);
+    handleStateCalibration(is_entry, gesture, now_ms);
     break;
 
   case STATE_OTA_MODE:
-    handleStateOTAMode();
+    handleStateOTAMode(is_entry);
     break;
 
   case STATE_BATTERY_DEAD_DISPLAY:
-    if (state_machine.stateChanged()) {
+    if (is_entry) {
       led_controller.errorBattery();
     }
     // Timeout handled by state_machine (2s -> DEEP_SLEEP)
     break;
 
   case STATE_COMPASS_CALIBRATION:
-    handleStateCompassCalibration();
+    handleStateCompassCalibration(is_entry);
     break;
 
   default:
@@ -843,7 +840,7 @@ void loop() {
 // STATE HANDLERS
 // ============================================================================
 
-void handleStateDeepSleep(GestureType gesture) {
+void handleStateDeepSleep(bool is_entry, GestureType gesture) {
   // If we just entered DEEP_SLEEP, configure IMU for Rise-to-Wake and clear
   // wake sources
   // BUG-010: Peripheral shutdown runs ONCE on state entry, not every 10ms tick.
@@ -943,8 +940,8 @@ void handleStateDeepSleep(GestureType gesture) {
   #endif
 }
 
-void handleStateWakingUp() {
-  if (state_machine.stateChanged()) {
+void handleStateWakingUp(bool is_entry) {
+  if (is_entry) {
     sleep_entry_done = false;
     // BUG-026: Clear sleeping flag so isAsleep() reflects reality.
     power_manager.wakeFromSleep();
@@ -980,24 +977,27 @@ void handleStateWakingUp() {
 
     // Note: Bit-bang GPIO is immune to the mbed Wire1 TWI driver bug, so we no
     // longer need to re-initialize the compass here.
+    state_machine.resetTimer(1500); // 1.5s wake animation
   }
 
-  // If a haptic event woke the watch or arrived while sleeping, process it
-  // first
-  if (haptic_rx_pending) {
-    haptic_rx_pending = false; // Reset flag
-    state_machine.transitionTo(STATE_HAPTIC_RX);
-  } else {
-    // Check BLE connection and transition accordingly
-    if (ble_handler.isConnected()) {
-      state_machine.transitionTo(STATE_CLOCK_CONNECTED);
+  if (state_machine.isTimerExpired()) {
+    // If a haptic event woke the watch or arrived while sleeping, process it
+    // first
+    if (haptic_rx_pending) {
+      haptic_rx_pending = false; // Reset flag
+      state_machine.transitionTo(STATE_HAPTIC_RX);
     } else {
-      state_machine.transitionTo(STATE_CLOCK_DISCONNECTED);
+      // Check BLE connection and transition accordingly
+      if (ble_handler.isConnected()) {
+        state_machine.transitionTo(STATE_CLOCK_CONNECTED);
+      } else {
+        state_machine.transitionTo(STATE_CLOCK_DISCONNECTED);
+      }
     }
   }
 }
 
-void handleStateClockConnected(GestureType gesture, uint32_t now_ms) {
+void handleStateClockConnected(bool is_entry, GestureType gesture, uint32_t now_ms) {
   static uint32_t last_time_update_ms = 0;
 
   // Update clock display every 33ms (~30 Hz) to reduce power sags and BLE
@@ -1068,7 +1068,7 @@ void handleStateClockConnected(GestureType gesture, uint32_t now_ms) {
   }
 }
 
-void handleStateClockDisconnected(GestureType gesture, uint32_t now_ms) {
+void handleStateClockDisconnected(bool is_entry, GestureType gesture, uint32_t now_ms) {
   static uint32_t last_time_update_ms = 0;
 
   // Update clock display every 500ms (~2 Hz) to give BLE advertising plenty of
@@ -1132,7 +1132,7 @@ void handleStateClockDisconnected(GestureType gesture, uint32_t now_ms) {
   }
 }
 
-void handleStateRadarMode(GestureType gesture) {
+void handleStateRadarMode(bool is_entry, GestureType gesture) {
   static uint32_t last_update = 0;
   uint32_t now = millis();
 
@@ -1148,7 +1148,7 @@ void handleStateRadarMode(GestureType gesture) {
 
   // Notify app only once when entering RADAR_MODE (not every loop)
   static bool radar_notified = false;
-  if (state_machine.stateChanged()) {
+  if (is_entry) {
     radar_notified = false;
   }
   if (!radar_notified) {
@@ -1185,7 +1185,7 @@ void handleStateRadarMode(GestureType gesture) {
   }
 }
 
-void handleStateDistanceMode(GestureType gesture) {
+void handleStateDistanceMode(bool is_entry, GestureType gesture) {
   static uint32_t last_update = 0;
   uint32_t now = millis();
 
@@ -1224,11 +1224,11 @@ void handleStateDistanceMode(GestureType gesture) {
   }
 }
 
-void handleStateHapticTX() {
+void handleStateHapticTX(bool is_entry) {
   static uint8_t pulse_step = 0;
   static uint32_t step_timer = 0;
 
-  if (state_machine.stateChanged()) {
+  if (is_entry) {
     pulse_step = 0;
     step_timer = millis();
     ble_handler.notifyHapticTX();
@@ -1276,11 +1276,11 @@ void handleStateHapticTX() {
   }
 }
 
-void handleStateHapticRX(GestureType gesture) {
+void handleStateHapticRX(bool is_entry, GestureType gesture) {
   // Vibrate with haptic pattern + pink LED pulse
   static bool pattern_started = false;
 
-  if (state_machine.stateChanged()) {
+  if (is_entry) {
     pattern_started = false;
   }
 
@@ -1299,9 +1299,9 @@ void handleStateHapticRX(GestureType gesture) {
   }
 }
 
-void handleStateErrorNoGPS() {
+void handleStateErrorNoGPS(bool is_entry) {
   static bool error_displayed = false;
-  if (state_machine.stateChanged()) {
+  if (is_entry) {
     error_displayed = false;
   }
 
@@ -1312,14 +1312,14 @@ void handleStateErrorNoGPS() {
   }
 }
 
-void handleStateCalibration(GestureType gesture, uint32_t now_ms) {
+void handleStateCalibration(bool is_entry, GestureType gesture, uint32_t now_ms) {
   // NEW: Rise-to-wake calibration
 
   static bool calib_started = false;
   static uint8_t last_progress = 0xFF;
   static bool success_shown = false;
 
-  if (state_machine.stateChanged()) {
+  if (is_entry) {
     calib_started = false;
     last_progress = 0xFF;
     success_shown = false;
@@ -1391,7 +1391,7 @@ void handleStateCalibration(GestureType gesture, uint32_t now_ms) {
   }
 }
 
-void handleStateOTAMode() {
+void handleStateOTAMode(bool is_entry) {
   // BUG-007: Reset static locals on state entry.
   // ota_enter_time is a static local that was never reset. On a second OTA
   // request after a cancellation, it still held the old millis() value,
@@ -1401,7 +1401,7 @@ void handleStateOTAMode() {
   static uint32_t ota_enter_time = 0;
   static bool ota_timer_started = false;
 
-  if (state_machine.stateChanged()) {
+  if (is_entry) {
     ota_timer_started = false;
     ota_enter_time = 0;
     ota_progress = 0;
@@ -1768,8 +1768,9 @@ void debugPrintStatus() {
 // END OF FIRMWARE
 // ============================================================================
 
-void handleStateCompassCalibration() {
-  if (!compass.isCalibrating()) {
+void handleStateCompassCalibration(bool is_entry) {
+  if (is_entry) state_machine.resetTimer(15000);
+  if (!compass.isCalibrating() || state_machine.isTimerExpired()) {
     state_machine.transitionTo(ble_handler.isConnected() ? STATE_CLOCK_CONNECTED : STATE_CLOCK_DISCONNECTED);
     return;
   }

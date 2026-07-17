@@ -287,6 +287,7 @@ void CompassController::powerUp() {
                                    
   powered_down = false;
   conversion_pending = false;
+  i2c_start();
   i2c_stop();
   Serial.println("[COMPASS] Power restored");
 }

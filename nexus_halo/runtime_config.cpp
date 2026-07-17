@@ -219,10 +219,7 @@ bool RuntimeConfigManager::loadFromFlash() {
   }
   
   if (magic_idx > 0) {
-    size_t copyLen = magic_idx > sizeof(RuntimeConfig) ? sizeof(RuntimeConfig) : magic_idx;
-    // config is already loaded with defaults from constructor, so we just overwrite the old fields
-    memcpy(&config, buf, copyLen);
-    return true;
+    return false; // Fall back to factory defaults instead of corrupting data
   }
   return false;
 }

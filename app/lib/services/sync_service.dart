@@ -15,9 +15,10 @@ import '../models/location_model.dart';
 /// - Suscripción Realtime a eventos hápticos
 /// - Envío de eventos hápticos
 class SyncService extends ChangeNotifier {
-  late SupabaseClient _client;
-
   // ── Estado ──────────────────────────────────────────────────────────────
+
+  final _processedHapticIds = <String>{};
+  static const _kMaxProcessedIds = 50;
 
   /// ID del usuario actual ("A" o "B")
   String _myUserId = 'A';
@@ -56,7 +57,6 @@ class SyncService extends ChangeNotifier {
   /// [userId] es "A" o "B" — identifica a este usuario en el sistema.
   Future<void> initialize(String userId) async {
     _myUserId = userId;
-    _client = Supabase.instance.client;
 
     print('[SYNC] Initialized as user: $_myUserId (partner: $partnerUserId)');
 
@@ -74,7 +74,7 @@ class SyncService extends ChangeNotifier {
   /// Actualiza [isConnected] según el resultado.
   Future<bool> checkConnection() async {
     try {
-      await _client
+      await Supabase.instance.client
           .from('locations')
           .select('user_id')
           .limit(1)
@@ -120,7 +120,7 @@ class SyncService extends ChangeNotifier {
         pollingMode: pollingMode,
       );
 
-      await _client.from('locations').upsert(location.toJson());
+      await Supabase.instance.client.from('locations').upsert(location.toJson());
 
       _updateConnectionStatus(true);
       print('[SYNC] Location uploaded: '
@@ -144,37 +144,37 @@ class SyncService extends ChangeNotifier {
       } catch (e) {
         print('[SYNC] Error unsubscribing location channel: $e');
       }
-    
-    _locationChannel = _client
-        .channel('partner-location')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'locations',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'user_id',
-            value: partnerUserId,
-          ),
-          callback: (payload) {
-            final newData = payload.newRecord;
-            if (newData.isNotEmpty) {
-              _partnerLocation = LocationModel.fromJson(newData);
+      
+      _locationChannel = Supabase.instance.client
+          .channel('partner-location')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'locations',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'user_id',
+              value: partnerUserId,
+            ),
+            callback: (payload) {
+              final newData = payload.newRecord;
+              if (newData.isNotEmpty) {
+                _partnerLocation = LocationModel.fromJson(newData);
 
-              print('[SYNC] Partner location updated: '
-                  '${_partnerLocation!.latitude.toStringAsFixed(5)}, '
-                  '${_partnerLocation!.longitude.toStringAsFixed(5)}');
+                print('[SYNC] Partner location updated: '
+                    '${_partnerLocation!.latitude.toStringAsFixed(5)}, '
+                    '${_partnerLocation!.longitude.toStringAsFixed(5)}');
 
-              onPartnerLocationUpdate?.call(LatLng(
-                _partnerLocation!.latitude,
-                _partnerLocation!.longitude,
-              ));
+                onPartnerLocationUpdate?.call(LatLng(
+                  _partnerLocation!.latitude,
+                  _partnerLocation!.longitude,
+                ));
 
-              notifyListeners();
-            }
-          },
-        )
-        .subscribe();
+                notifyListeners();
+              }
+            },
+          )
+          .subscribe();
 
       print('[SYNC] Subscribed to partner location (user: $partnerUserId)');
     } finally {
@@ -194,36 +194,42 @@ class SyncService extends ChangeNotifier {
       } catch (e) {
         print('[SYNC] Error unsubscribing haptic channel: $e');
       }
-    
-    _hapticChannel = _client
-        .channel('haptic-events')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'haptic_events',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'to_user',
-            value: _myUserId,
-          ),
-          callback: (payload) {
-            final newData = payload.newRecord;
-            if (newData.isNotEmpty) {
-              final consumed = newData['consumed'] as bool? ?? false;
-              if (!consumed) {
-                final eventId = newData['id'] as String;
-                print('[SYNC] Haptic event received! ID: $eventId');
+      
+      _hapticChannel = Supabase.instance.client
+          .channel('haptic-events')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'haptic_events',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'to_user',
+              value: _myUserId,
+            ),
+            callback: (payload) {
+              final newData = payload.newRecord;
+              if (newData.isNotEmpty) {
+                final consumed = newData['consumed'] as bool? ?? false;
+                if (!consumed) {
+                  final eventId = newData['id'] as String;
+                  if (_processedHapticIds.contains(eventId)) return;
+                  if (_processedHapticIds.length >= _kMaxProcessedIds) {
+                    _processedHapticIds.remove(_processedHapticIds.first);
+                  }
+                  _processedHapticIds.add(eventId);
 
-                // Marcar como consumido
-                _consumeHapticEvent(eventId);
+                  print('[SYNC] Haptic event received! ID: $eventId');
 
-                // Notificar
-                onHapticEventReceived?.call();
+                  // Marcar como consumido
+                  _consumeHapticEvent(eventId);
+
+                  // Notificar
+                  onHapticEventReceived?.call();
+                }
               }
-            }
-          },
-        )
-        .subscribe();
+            },
+          )
+          .subscribe();
 
       print('[SYNC] Subscribed to haptic events (user: $_myUserId)');
     } finally {
@@ -236,7 +242,7 @@ class SyncService extends ChangeNotifier {
   /// Se llama cuando el reloj notifica HAPTIC_TX (el usuario tocó el reloj).
   Future<void> sendHapticEvent() async {
     try {
-      await _client.from('haptic_events').insert({
+      await Supabase.instance.client.from('haptic_events').insert({
         'from_user': _myUserId,
         'to_user': partnerUserId,
       });
@@ -250,7 +256,7 @@ class SyncService extends ChangeNotifier {
   /// Marcar un evento háptico como consumido
   Future<void> _consumeHapticEvent(String eventId) async {
     try {
-      await _client
+      await Supabase.instance.client
           .from('haptic_events')
           .update({'consumed': true})
           .eq('id', eventId);
@@ -268,7 +274,7 @@ class SyncService extends ChangeNotifier {
   /// Útil en el arranque, antes de que llegue la primera actualización Realtime.
   Future<LocationModel?> fetchPartnerLocation() async {
     try {
-      final data = await _client
+      final data = await Supabase.instance.client
           .from('locations')
           .select()
           .eq('user_id', partnerUserId)
@@ -296,7 +302,7 @@ class SyncService extends ChangeNotifier {
   /// Limpiar eventos hápticos antiguos consumidos
   Future<void> cleanupOldHapticEvents() async {
     try {
-      await _client.rpc('cleanup_old_haptic_events');
+      await Supabase.instance.client.rpc('cleanup_old_haptic_events');
       print('[SYNC] Old haptic events cleaned up');
     } catch (e) {
       print('[SYNC] Error cleaning up haptic events: $e');

@@ -8,9 +8,6 @@ import 'package:latlong2/latlong.dart';
 /// Este servicio es puro (sin estado ni side effects) y no necesita
 /// inicialización.
 class BearingCalculator {
-  /// Radio de la Tierra en kilómetros
-  static const double _earthRadiusKm = 6371.0;
-
   /// Instancia de Distance de latlong2 para cálculos
   static const Distance _distance = Distance();
 

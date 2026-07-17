@@ -68,11 +68,10 @@ void HapticController::setMotor(uint8_t intensity) {
 }
 
 void HapticController::stopMotor() {
-  pattern_active = false;
-  if (!vibrating) return;
   analogWrite(pin_motor, 0);
   digitalWrite(pin_motor, LOW);
   vibrating = false;
+  pattern_active = false;
 }
 
 void HapticController::update(uint32_t now_ms) {

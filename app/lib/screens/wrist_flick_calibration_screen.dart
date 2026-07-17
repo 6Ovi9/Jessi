@@ -265,10 +265,13 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
                       max: _kThresholdMax.toDouble(),
                       divisions: (_kThresholdMax - _kThresholdMin) ~/ 10,
                       onChanged: connected
+                          ? (v) {
+                              setState(() => _threshold = v.round());
+                            }
+                          : null,
+                      onChangeEnd: connected
                           ? (v) async {
-                              final newVal = v.round();
-                              setState(() => _threshold = newVal);
-                              await _writeThreshold(newVal);
+                              await _writeThreshold(v.round());
                             }
                           : null,
                     ),
@@ -344,10 +347,13 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
                       max: 1200,
                       divisions: 16,
                       onChanged: connected
+                          ? (v) {
+                              setState(() => _doubleFlickWindowMs = v.round());
+                            }
+                          : null,
+                      onChangeEnd: connected
                           ? (v) async {
-                              final newVal = v.round();
-                              setState(() => _doubleFlickWindowMs = newVal);
-                              await _writeDoubleFlickWindow(newVal);
+                              await _writeDoubleFlickWindow(v.round());
                             }
                           : null,
                     ),

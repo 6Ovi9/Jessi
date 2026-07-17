@@ -48,7 +48,9 @@ class LocationModel {
   }
 
   /// ¿Es una ubicación válida? (no es el valor inicial 0,0)
-  bool get isValid => latitude != 0 || longitude != 0;
+  bool get isValid =>
+      latitude >= -90 && latitude <= 90 &&
+      longitude >= -180 && longitude <= 180;
 
   /// Edad de la ubicación (cuánto hace que se actualizó)
   Duration get age => DateTime.now().difference(updatedAt);

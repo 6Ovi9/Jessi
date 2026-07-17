@@ -8,7 +8,9 @@ GestureDetector::GestureDetector()
     gyro_threshold(GESTURE_GYRO_THS_DEFAULT),
     double_flick_window(GESTURE_DOUBLE_FLICK_WINDOW_DEFAULT),
     detected_gesture(GESTURE_NONE),
-    gesture_reported(true)
+    gesture_reported(true),
+    sequence_start_ms(0),
+    tear_debounce(0)
 {
 }
 
@@ -25,9 +27,9 @@ void GestureDetector::update(uint32_t now_ms) {
   // Check multi-flick timeout: if we were waiting for more flicks but no more came within the window,
   // report the accumulated flicks (1 flick = GESTURE_TAP_SIMPLE, 2 flicks = GESTURE_TAP_DOUBLE)
   if (flick_count > 0 && (now_ms - sequence_start_ms) > double_flick_window) {
-    if (gesture_reported || detected_gesture == GESTURE_NONE) {
+    if (detected_gesture == GESTURE_NONE) {
       if (flick_count == 1) detected_gesture = GESTURE_TAP_SIMPLE;
-      else if (flick_count == 2) detected_gesture = GESTURE_TAP_DOUBLE;
+      else if (flick_count >= 2) detected_gesture = GESTURE_TAP_DOUBLE;
       gesture_reported = false;
     }
     flick_count = 0;
@@ -41,7 +43,6 @@ void GestureDetector::update(uint32_t now_ms) {
     
     float gyro_mag = std::sqrt(gx*gx + gy*gy + gz*gz);
     
-    static uint8_t tear_debounce = 0;
     if (gyro_mag > gyro_threshold) {
       tear_debounce++;
       if (tear_debounce < 2) return;
@@ -96,6 +97,7 @@ void GestureDetector::reset() {
   last_flick_ms = 0;
   sequence_start_ms = 0;
   flick_reset = true;
+  tear_debounce = 0;
 }
 
 

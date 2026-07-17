@@ -13,7 +13,7 @@
 #define RUNTIME_CONFIG_MAGIC  0xCF7F  // "CF" = config (v7) — bumped: uint8_t→uint16_t for timeout fields
 #define RUNTIME_CONFIG_FILE   "config.dat"
 
-struct RuntimeConfig {
+struct __attribute__((packed)) RuntimeConfig {
   // 32-bit fields
   uint32_t colorHoursConnected;
   uint32_t colorMinutesConnected;
