@@ -110,6 +110,27 @@ API_EXTERNAL_URL=http://100.x.x.x:8000
 SITE_URL=http://100.x.x.x:3000
 ```
 
+### 🔑 Generar llaves (Anon y Service Role)
+
+Para que la App de Flutter se comunique con Supabase, necesitas generar un token JWT con el rol `anon`. **NO puedes usar el `JWT_SECRET` directamente en la App.**
+
+Usa el siguiente script de Node.js (`npm install jsonwebtoken`) para generar tus llaves:
+
+```javascript
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = 'un-token-jwt-de-al-menos-32-caracteres'; // Debe coincidir con tu .env
+
+// Generar Anon Key (usada en main.dart)
+const anonToken = jwt.sign({ role: 'anon', iss: 'supabase' }, JWT_SECRET, { expiresIn: '10y' });
+console.log('ANON_KEY:', anonToken);
+
+// Generar Service Role Key (usada en docker-compose.yml)
+const serviceToken = jwt.sign({ role: 'service_role', iss: 'supabase' }, JWT_SECRET, { expiresIn: '10y' });
+console.log('SERVICE_KEY:', serviceToken);
+```
+Copiar el `ANON_KEY` resultante y colocarlo en el archivo `main.dart` de la App Flutter.
+
 Si no creas `.env`, se usan los defaults de desarrollo (suficiente para uso personal).
 
 ## 🧹 Mantenimiento

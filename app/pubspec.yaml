@@ -2,7 +2,7 @@ name: nexus_halo
 description: Nexus Halo — Smart watch companion app for real-time partner tracking
 
 publish_to: 'none'
-version: 1.1.0+2
+version: 1.2.0+3
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -43,7 +43,6 @@ dependencies:
 
   # Google Fonts for premium typography
   google_fonts: ^6.2.1
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

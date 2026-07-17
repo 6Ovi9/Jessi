@@ -26,8 +26,12 @@ class WatchConfig {
   final int lowBatteryThreshold;
   final bool logarithmicBrightness;
 
-  // Vibración
+  // Vibración y Hápticos Phase 2
   final String hapticPattern;
+  final String colorHapticTx;
+  final String colorHapticRx;
+  final int brightnessHapticTx;
+  final int brightnessHapticRx;
 
   // GPS Dynamic Polling (segundos)
   final int gpsIntervalPrecisionS;
@@ -59,6 +63,10 @@ class WatchConfig {
     this.lowBatteryThreshold = 15,
     this.logarithmicBrightness = true,
     this.hapticPattern = 'both',
+    this.colorHapticTx = 'FF66CCFF',
+    this.colorHapticRx = 'FFFF6699',
+    this.brightnessHapticTx = 100,
+    this.brightnessHapticRx = 100,
     this.gpsIntervalPrecisionS = 3,
 
     this.gpsIntervalNearS = 60,
@@ -108,6 +116,10 @@ class WatchConfig {
       lowBatteryThreshold: (json['low_battery_threshold'] as num?)?.toInt() ?? 15,
       logarithmicBrightness: json['logarithmic_brightness'] as bool? ?? true,
       hapticPattern: _normalizeHapticPattern(json['haptic_pattern'] as String?),
+      colorHapticTx: json['color_haptic_tx'] as String? ?? 'FF66CCFF',
+      colorHapticRx: json['color_haptic_rx'] as String? ?? 'FFFF6699',
+      brightnessHapticTx: (json['brightness_haptic_tx'] as num?)?.toInt() ?? 100,
+      brightnessHapticRx: (json['brightness_haptic_rx'] as num?)?.toInt() ?? 100,
 
       gpsIntervalPrecisionS: (json['gps_interval_precision_s'] as num?)?.toInt() ?? 3,
       gpsIntervalNearS: (json['gps_interval_near_s'] as num?)?.toInt() ?? 60,
@@ -136,6 +148,10 @@ class WatchConfig {
       'low_battery_threshold': lowBatteryThreshold,
       'logarithmic_brightness': logarithmicBrightness,
       'haptic_pattern': hapticPattern,
+      'color_haptic_tx': colorHapticTx,
+      'color_haptic_rx': colorHapticRx,
+      'brightness_haptic_tx': brightnessHapticTx,
+      'brightness_haptic_rx': brightnessHapticRx,
       'gps_interval_precision_s': gpsIntervalPrecisionS,
       'gps_interval_near_s': gpsIntervalNearS,
       'gps_interval_far_s': gpsIntervalFarS,
@@ -163,6 +179,10 @@ class WatchConfig {
       'lb': lowBatteryThreshold,
       'lg': logarithmicBrightness ? 1 : 0,
       'hp': hapticPattern == 'partner' ? 1 : 0,
+      'ctx': colorHapticTx,
+      'crx': colorHapticRx,
+      'btx': brightnessHapticTx,
+      'brx': brightnessHapticRx,
       'wt': wakeThreshold,
       'gt': gyroThreshold,
       'df': doubleFlickWindowMs,
@@ -205,6 +225,10 @@ class WatchConfig {
     int? lowBatteryThreshold,
     bool? logarithmicBrightness,
     String? hapticPattern,
+    String? colorHapticTx,
+    String? colorHapticRx,
+    int? brightnessHapticTx,
+    int? brightnessHapticRx,
     int? gpsIntervalPrecisionS,
     int? gpsIntervalNearS,
     int? gpsIntervalFarS,
@@ -228,6 +252,10 @@ class WatchConfig {
       lowBatteryThreshold: lowBatteryThreshold ?? this.lowBatteryThreshold,
       logarithmicBrightness: logarithmicBrightness ?? this.logarithmicBrightness,
       hapticPattern: hapticPattern ?? this.hapticPattern,
+      colorHapticTx: colorHapticTx ?? this.colorHapticTx,
+      colorHapticRx: colorHapticRx ?? this.colorHapticRx,
+      brightnessHapticTx: brightnessHapticTx ?? this.brightnessHapticTx,
+      brightnessHapticRx: brightnessHapticRx ?? this.brightnessHapticRx,
       gpsIntervalPrecisionS: gpsIntervalPrecisionS ?? this.gpsIntervalPrecisionS,
       gpsIntervalNearS: gpsIntervalNearS ?? this.gpsIntervalNearS,
       gpsIntervalFarS: gpsIntervalFarS ?? this.gpsIntervalFarS,

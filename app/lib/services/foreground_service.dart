@@ -3,6 +3,8 @@ import 'dart:ui';
 import 'package:flutter/widgets.dart';
 
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'ble_service.dart';
+import 'location_service.dart';
 
 /// Controlador del Android Foreground Service.
 ///
@@ -125,6 +127,7 @@ void _startCallback() {
 /// El trabajo real de BLE/GPS/Sync se hace en los services de la app,
 /// no aquí. Este handler solo mantiene el servicio vivo.
 class _ForegroundTaskHandler extends TaskHandler {
+
   @override
   void onStart(DateTime timestamp, SendPort? sendPort) {
     WidgetsFlutterBinding.ensureInitialized();
@@ -134,9 +137,11 @@ class _ForegroundTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp, SendPort? sendPort) {
-    // Este evento se dispara cada `interval` ms (5000ms = 5s)
-    // No hacemos nada aquí — el polling GPS se gestiona en LocationService
-    // y el BLE en BleService. Solo mantenemos el servicio vivo.
+    // Este evento se dispara cada `interval` ms (5000ms = 5s) en un isolate secundario.
+    // Enviamos un mensaje al isolate principal (UI) para forzar que Android lo
+    // despierte (wake up) temporalmente y procese el Event Loop, permitiendo
+    // que los timers de LocationService y BleService sigan funcionando en background.
+    sendPort?.send('tick');
   }
 
   @override

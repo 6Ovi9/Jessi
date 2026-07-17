@@ -480,7 +480,7 @@ void CompassController::calibrationUpdate() {
 }
 
 void CompassController::saveCalibration() {
-  struct CompassCalibData {
+  struct __attribute__((packed)) CompassCalibData {
     float offset_x;
     float offset_y;
     float offset_z;
@@ -532,7 +532,7 @@ void CompassController::saveCalibration() {
 }
 
 void CompassController::loadCalibration() {
-  struct CompassCalibData {
+  struct __attribute__((packed)) CompassCalibData {
     float offset_x;
     float offset_y;
     float offset_z;

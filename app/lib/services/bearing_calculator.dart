@@ -91,7 +91,7 @@ class BearingCalculator {
         return Duration(seconds: farS);
       case GpsPollingMode.remote:
         // Jitter aleatorio para evitar colisiones de polling entre ambos usuarios
-        final jitter = Random().nextInt(remoteMaxS - remoteMinS + 1);
+        final jitter = Random().nextInt(max(1, remoteMaxS - remoteMinS + 1));
         return Duration(seconds: remoteMinS + jitter);
     }
   }

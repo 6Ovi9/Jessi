@@ -50,6 +50,9 @@ class LocationService extends ChangeNotifier {
   bool _isRunning = false;
   bool get isRunning => _isRunning;
 
+  /// Prevents concurrent GPS requests (Race Condition Fix)
+  bool _isUpdating = false;
+
   /// Contador de actualizaciones GPS (para estadísticas)
   int _updateCount = 0;
   int get updateCount => _updateCount;
@@ -102,7 +105,9 @@ class LocationService extends ChangeNotifier {
 
     if (shouldUpgradeToAlwaysPermission(isAndroid: Platform.isAndroid, permission: permission)) {
       final upgradedPermission = await Geolocator.requestPermission();
-      permission = upgradedPermission;
+      if (upgradedPermission != LocationPermission.denied && upgradedPermission != LocationPermission.deniedForever) {
+        permission = upgradedPermission;
+      }
     }
 
     final hasRequiredPermission = permission == LocationPermission.always ||
@@ -131,7 +136,7 @@ class LocationService extends ChangeNotifier {
     final hasPermission = await checkAndRequestPermissions();
     if (!hasPermission) {
       print('[GPS] Cannot start: no permission');
-      return;
+      throw Exception('Los servicios de ubicación o los permisos de GPS están desactivados.');
     }
 
     _isRunning = true;
@@ -262,6 +267,12 @@ class LocationService extends ChangeNotifier {
 
   /// Obtener posición GPS actual y notificar
   Future<void> _doGpsUpdate() async {
+    if (_isUpdating) {
+      print('[GPS] Update already in progress. Skipping...');
+      return;
+    }
+    _isUpdating = true;
+
     try {
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: _currentMode == GpsPollingMode.precision
@@ -296,12 +307,12 @@ class LocationService extends ChangeNotifier {
       notifyListeners();
 
       print('[GPS] Update #$_updateCount: '
-          '${position.latitude.toStringAsFixed(5)}, '
-          '${position.longitude.toStringAsFixed(5)} '
-          '±${position.accuracy.toStringAsFixed(0)}m '
-          '[${_currentMode.label}]');
+          'Lat ${position.latitude}, Lng ${position.longitude} '
+          '| Dist: ${_distanceKm.toStringAsFixed(3)}km | Brg: ${_bearingDeg.toStringAsFixed(1)}°');
     } catch (e) {
-      print('[GPS] Error getting position: $e');
+      print('[GPS] Error getting location: $e');
+    } finally {
+      _isUpdating = false;
     }
   }
 

@@ -51,6 +51,8 @@ PowerManager::PowerManager()
 }
 
 void PowerManager::begin() {
+  wake_sem = xSemaphoreCreateBinary();
+  
   _setupBatteryADC();
   
   // Don't power down here; that happens in nexus_halo.ino setup()
@@ -144,7 +146,7 @@ void PowerManager::setupIMUForRiseToWake() {
   // 5. Set wake-up duration (bits[7:6] of WAKE_UP_DUR).
   //    Each count = 1/ODR_XL = 80 ms at 12.5 Hz.
   //    Also clear SLEEP_DUR and TIMER_HR bits → write full register = 0xXX.
-  _writeLSM6DS3Register(LSM6DS3_REG_WAKE_UP_DUR, (IMU_WAKE_UP_DUR & 0x03) << 6);
+  _writeLSM6DS3Register(LSM6DS3_REG_WAKE_UP_DUR, (IMU_WAKE_UP_DUR & 0x03) << 5);
   Serial.print("[POWER] Wake duration: ");
   Serial.print(IMU_WAKE_UP_DUR + 1);
   Serial.print(" sample(s) = ~");
@@ -178,7 +180,7 @@ void PowerManager::updateIMUThreshold(uint8_t new_threshold) {
   Serial.println(masked_val, HEX);
 }
 
-void PowerManager::enterDeepSleep() {
+void PowerManager::enterDeepSleep(uint32_t timeout_ms) {
   sleeping = true;
   
   // Power down external components via GPIO
@@ -187,25 +189,10 @@ void PowerManager::enterDeepSleep() {
   // Configure interrupt for button wake-up (D8)
   // (handled elsewhere)
   
-  // Enter deep sleep using nRF52840 power control.
-  // The SoftDevice sleep call (sd_app_evt_wait) is used if active to safely manage power
-  // while keeping Bluetooth low energy operations running.
-#ifdef SOFTDEVICE_PRESENT
-  uint8_t sd_en = 0;
-  (void) sd_softdevice_is_enabled(&sd_en);
-  
-  if (sd_en) {
-    delay(10);
-  } else {
-    __SEV();
-    __WFE();
-    __WFE();
+  if (wake_sem) {
+    // Let FreeRTOS handle tickless idle sleep. Wakes up on timeout OR interrupt.
+    xSemaphoreTake(wake_sem, timeout_ms == portMAX_DELAY ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms));
   }
-#else
-  __SEV();
-  __WFE();
-  __WFE();
-#endif
 }
 
 void PowerManager::wakeFromSleep() {

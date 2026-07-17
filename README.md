@@ -63,7 +63,7 @@ En la versión v2.1.0, el reloj se despierta del modo `DEEP_SLEEP` únicamente a
 ### 🛡️ Salvaguarda Contra Notificaciones Accidentales (Flujo en Dos Fases)
 El sistema ha sido diseñado específicamente para que no se puedan enviar notificaciones accidentales mientras el reloj está en un bolso o mochila o durante movimientos corporales bruscos:
 1.  **Fase 1: Despertar (Acelerómetro).** Cuando el reloj está en reposo profundo (`DEEP_SLEEP`), el giroscopio está **totalmente apagado**. El acelerómetro de ultra bajo consumo solo vigila el levantamiento de muñeca. Un movimiento fuerte o levantamiento despierta el reloj al modo `CLOCK` para ver la hora.
-2.  **Fase 2: Detección de Gestos (Giroscopio).** El giroscopio solo se enciende *después* de que el reloj ha despertado. Una vez en modo `CLOCK`, el motor de gestos analiza la velocidad angular en busca de un **Doble Giro de Muñeca** rápido (*Double Flick*) dentro de una ventana temporal ajustable (de 400 a 1200 ms). Si el movimiento que despertó al reloj no es seguido inmediatamente por este doble giro coordinado, el reloj vuelve a dormirse tras unos segundos sin enviar ningún toque.
+2.  **Fase 2: Detección de Gestos (Giroscopio).** El giroscopio solo se enciende *después* de que el reloj ha despertado. Una vez en modo `CLOCK`, el motor de gestos analiza la velocidad angular en busca de un **Triple Giro de Muñeca** rápido (*Triple Flick*) dentro de una ventana temporal ajustable (de 400 a 1200 ms). Si el movimiento que despertó al reloj no es seguido inmediatamente por este triple giro coordinado, el reloj vuelve a dormirse tras unos segundos sin enviar ningún toque.
 
 ### 🛠️ Compilación e Instalación del Firmware
 

@@ -3,6 +3,8 @@
 
 #include "config.h"
 #include <Arduino.h>
+#include <FreeRTOS.h>
+#include <semphr.h>
 
 // ============================================================================
 // POWER MANAGEMENT (Deep Sleep, Wake, Battery)
@@ -11,6 +13,8 @@
 class PowerManager {
 public:
   PowerManager();
+  
+  SemaphoreHandle_t wake_sem;
   
   // Initialize power management and battery monitoring
   void begin();
@@ -38,7 +42,7 @@ public:
   }
   
   // Enter deep sleep mode
-  void enterDeepSleep();
+  void enterDeepSleep(uint32_t timeout_ms = portMAX_DELAY);
   
   // Wake from deep sleep (call after interrupt)
   void wakeFromSleep();

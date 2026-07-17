@@ -23,7 +23,11 @@ import 'services/sync_service.dart';
 /// Cambiar a la IP de Tailscale de tu PC: http://100.x.x.x:8000
 const String supabaseUrl = 'http://100.103.87.29:8000';
 
-/// Anon key de Supabase (generada a partir del JWT_SECRET del backend).
+/// Anon key de Supabase.
+/// IMPORTANTE: No puedes usar el JWT_SECRET directamente aquí. Debes generar un JWT
+/// firmado con ese secreto que contenga el rol "anon".
+/// Ejemplo usando Node.js (jsonwebtoken):
+/// jwt.sign({ role: 'anon', iss: 'supabase' }, 'TU_JWT_SECRET', { expiresIn: '10y' })
 const String supabaseAnonKey =
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9.3B1Uvi60MBpMQhXe8MAXU8oyuByp6sZJKib_8mYj3jw';
 
@@ -133,6 +137,13 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
   void initState() {
     super.initState();
     _partnerRepo = context.read<PartnerRepository>();
+    FlutterForegroundTask.receivePort?.listen((message) {
+      if (message == 'tick') {
+        // El Isolate de UI se despierta brevemente para procesar este mensaje,
+        // lo que permite que los timers de Dart (GPS, BLE reconnect) sigan corriendo.
+        debugPrint('[APP] Received background tick');
+      }
+    });
     _bootstrap();
   }
 
@@ -353,24 +364,6 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       return _buildUserSelectionScreen();
     }
 
-    // Mostrar error como snackbar si hubo uno durante bootstrap
-    if (_bootError != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('⚠️ Error de inicio: $_bootError'),
-            duration: const Duration(seconds: 5),
-            backgroundColor: Colors.red.shade800,
-            action: SnackBarAction(
-              label: 'Reintentar',
-              textColor: Colors.white,
-              onPressed: () => _bootstrap(),
-            ),
-          ),
-        );
-        _bootError = null; // Solo mostrar una vez
-      });
-    }
 
     return const HomeScreen();
   }

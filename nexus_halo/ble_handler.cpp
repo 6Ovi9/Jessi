@@ -221,16 +221,22 @@ void BLEHandler::setLowPowerAdvertising(bool enabled) {
   Bluefruit.Advertising.start(0);
 }
 
+// Force FreeRTOS to wake the main loop from sleep when BLE events occur
+extern void wakeMainLoop();
+
 void BLEHandler::connect_callback(uint16_t conn_handle) {
   if (instance) instance->_onConnect(conn_handle);
+  wakeMainLoop();
 }
 
 void BLEHandler::disconnect_callback(uint16_t conn_handle, uint8_t reason) {
   if (instance) instance->_onDisconnect(conn_handle, reason);
+  wakeMainLoop();
 }
 
 void BLEHandler::write_callback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
   if (instance) instance->_onWrite(conn_handle, chr, data, len);
+  wakeMainLoop();
 }
 
 void BLEHandler::_onConnect(uint16_t conn_handle) {

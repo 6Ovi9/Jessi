@@ -136,10 +136,25 @@ class _WakeCalibrationScreenState extends State<WakeCalibrationScreen>
   Future<void> _writeThreshold(int reg) async {
     final ble = context.read<BleService>();
     if (ble.connectionState != BleConnectionState.connected) return;
-    await ble.writeWakeThreshold(reg);
+    try {
+      await ble.writeWakeThreshold(reg);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error BLE: $e'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
     final repo = context.read<PartnerRepository>();
     final cfg = repo.config ?? WatchConfig.defaultFor(repo.myUserId);
-    await repo.saveConfig(cfg.copyWith(wakeThreshold: reg));
+    try {
+      await repo.saveConfig(cfg.copyWith(wakeThreshold: reg));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error DB: $e'), backgroundColor: Colors.red),
+      );
+    }
   }
 
   Future<void> _startAutoCalib() async {

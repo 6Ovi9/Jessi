@@ -94,8 +94,24 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
     final current = repo.config ?? WatchConfig.defaultFor(repo.myUserId);
     final cfg = current.copyWith(gyroThreshold: value);
 
-    await ble.writeConfig(cfg);
-    await repo.saveConfig(cfg);
+    try {
+      await repo.saveConfig(cfg);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error DB: $e'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    try {
+      await ble.writeConfig(cfg);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error BLE: $e'), backgroundColor: Colors.orange),
+      );
+    }
   }
 
   Future<void> _writeDoubleFlickWindow(int value) async {
@@ -106,8 +122,24 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
     final current = repo.config ?? WatchConfig.defaultFor(repo.myUserId);
     final cfg = current.copyWith(doubleFlickWindowMs: value);
 
-    await ble.writeConfig(cfg);
-    await repo.saveConfig(cfg);
+    try {
+      await repo.saveConfig(cfg);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error DB: $e'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    try {
+      await ble.writeConfig(cfg);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error BLE: $e'), backgroundColor: Colors.orange),
+      );
+    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────

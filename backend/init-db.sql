@@ -109,16 +109,33 @@ CREATE TABLE IF NOT EXISTS locations (
   updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Trigger para auto-actualizar updated_at en cada UPDATE
+CREATE OR REPLACE FUNCTION enforce_location_order()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Drop the update silently if the incoming timestamp is older or equal
+  IF NEW.updated_at <= OLD.updated_at THEN
+    RETURN NULL; 
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Eliminar triggers antiguos por si existen de migraciones previas
 DROP TRIGGER IF EXISTS trg_locations_updated_at ON locations;
-CREATE TRIGGER trg_locations_updated_at
+DROP TRIGGER IF EXISTS trg_01_locations_updated_at ON locations;
+DROP TRIGGER IF EXISTS trg_locations_order ON locations;
+
+-- Trigger para rechazar actualizaciones out-of-order (Ejecutar SEGUNDO)
+-- Nota: trg_locations_updated_at se omite intencionalmente para evitar clock-drift con el cliente
+DROP TRIGGER IF EXISTS trg_02_locations_order ON locations;
+CREATE TRIGGER trg_02_locations_order
   BEFORE UPDATE ON locations
   FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+  EXECUTE FUNCTION enforce_location_order();
 
--- Insertar filas iniciales (se actualizarán por UPSERT)
-INSERT INTO locations (user_id, latitude, longitude)
-VALUES ('A', 0, 0), ('B', 0, 0)
+-- Insertar filas iniciales con fecha muy antigua para no bloquear el primer update (BE Bug 1 Fix)
+INSERT INTO locations (user_id, latitude, longitude, updated_at)
+VALUES ('A', 0, 0, '1970-01-01 00:00:00Z'), ('B', 0, 0, '1970-01-01 00:00:00Z')
 ON CONFLICT (user_id) DO NOTHING;
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -167,8 +184,12 @@ CREATE TABLE IF NOT EXISTS watch_config (
   low_battery_threshold     INT DEFAULT 15,     -- % para LOW_BATTERY
   logarithmic_brightness    BOOLEAN DEFAULT TRUE, -- Curva gamma
 
-  -- Vibración
+  -- Vibración y Hápticos Phase 2
   haptic_pattern            TEXT DEFAULT 'both',
+  color_haptic_tx           TEXT DEFAULT 'FF66CCFF',  -- Azul claro (Toque enviado)
+  color_haptic_rx           TEXT DEFAULT 'FFFF6699',  -- Rosa (Toque recibido)
+  brightness_haptic_tx      INT DEFAULT 100,
+  brightness_haptic_rx      INT DEFAULT 100,
 
   -- Gyroscope wrist-flick timing window (ms)
   double_flick_window_ms    INT DEFAULT 800,
@@ -204,6 +225,21 @@ ON CONFLICT (user_id) DO NOTHING;
 
 -- Compatibilidad con instalaciones existentes: asegurar columnas nuevas
 ALTER TABLE watch_config
+  ADD COLUMN IF NOT EXISTS haptic_pattern TEXT DEFAULT 'both';
+
+ALTER TABLE watch_config
+  ADD COLUMN IF NOT EXISTS color_haptic_tx TEXT DEFAULT 'FF66CCFF';
+
+ALTER TABLE watch_config
+  ADD COLUMN IF NOT EXISTS color_haptic_rx TEXT DEFAULT 'FFFF6699';
+
+ALTER TABLE watch_config
+  ADD COLUMN IF NOT EXISTS brightness_haptic_tx INT DEFAULT 100;
+
+ALTER TABLE watch_config
+  ADD COLUMN IF NOT EXISTS brightness_haptic_rx INT DEFAULT 100;
+
+ALTER TABLE watch_config
   ADD COLUMN IF NOT EXISTS double_flick_window_ms INT DEFAULT 800;
 
 ALTER TABLE watch_config
@@ -224,7 +260,7 @@ ALTER TABLE watch_config ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Authenticated users can read all locations"
   ON locations FOR SELECT TO authenticated USING (true);
 
-CREATE POLICY "Authenticated users can upsert own location"
+CREATE POLICY "Authenticated users can upsert any location"
   ON locations FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Authenticated users can read haptic events"
@@ -239,7 +275,7 @@ CREATE POLICY "Authenticated users can update haptic events"
 CREATE POLICY "Authenticated users can read watch config"
   ON watch_config FOR SELECT TO authenticated USING (true);
 
-CREATE POLICY "Authenticated users can update own config"
+CREATE POLICY "Authenticated users can update any config"
   ON watch_config FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Permisos de tabla para los roles
@@ -296,7 +332,19 @@ BEGIN
   WHERE consumed = TRUE
     AND created_at < NOW() - INTERVAL '24 hours';
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Configurar pg_cron para que ejecute el mantenimiento periódicamente (BE Bug 10 Fix)
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+DO $$
+BEGIN
+  -- Programar la limpieza cada hora si no está programada ya
+  IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'cleanup_haptic_events') THEN
+    PERFORM cron.schedule('cleanup_haptic_events', '0 * * * *', 'SELECT public.cleanup_old_haptic_events();');
+  END IF;
+END
+$$;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- DONE

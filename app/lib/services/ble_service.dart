@@ -129,7 +129,7 @@ class BleService extends ChangeNotifier {
 
   int _reconnectAttempt = 0;
   // Set to infinite, but implement an exponential backoff in _retryTimer
-  static const int _maxReconnectAttempts = -1;
+  static const int _maxReconnectAttempts = 20;
 
   // ── Callbacks externos ─────────────────────────────────────────────────
 
@@ -300,13 +300,14 @@ class BleService extends ChangeNotifier {
   // ── Conexión ───────────────────────────────────────────────────────────
 
   /// Conectar a un dispositivo por su ID (MAC address)
-  void connectToDevice(String deviceId) {
-    print('[BLE] Connecting to device: $deviceId');
+  void connectToDevice(String deviceId, {bool isRetry = false}) {
+    print('[BLE] Connecting to device: $deviceId (isRetry: $isRetry)');
 
-    disconnect(); // Ensure any existing timers/subscriptions are canceled
-
-    if (_connectedDeviceId != null && _connectedDeviceId != deviceId) {
+    if (!isRetry) {
+      disconnect(); // Ensure any existing timers/subscriptions are canceled
       _reconnectAttempt = 0;
+    } else {
+      _connectionSubscription?.cancel();
     }
 
     _connectionState = BleConnectionState.connecting;
@@ -327,12 +328,14 @@ class BleService extends ChangeNotifier {
 
         switch (update.connectionState) {
           case DeviceConnectionState.connected:
+            _reconnectAttempt = 0;
             _connectionState = BleConnectionState.connected;
             _onConnected(deviceId);
             break;
           case DeviceConnectionState.disconnected:
             _connectionState = BleConnectionState.disconnected;
             _onDisconnected();
+            _scheduleReconnect();
             break;
           case DeviceConnectionState.connecting:
             _connectionState = BleConnectionState.connecting;
@@ -346,33 +349,38 @@ class BleService extends ChangeNotifier {
       },
       onError: (error) {
         print('[BLE] Connection error: $error');
-        _connectionState = BleConnectionState.disconnected;
-        _onDisconnected();
-        notifyListeners();
-
-        if (!shouldScheduleReconnect(
-          isConnected: false,
-          currentAttempt: _reconnectAttempt,
-          maxAttempts: _maxReconnectAttempts,
-        )) {
-          print('[BLE] Reconnect budget exhausted; stopping retries');
-          return;
+        if (_connectionState != BleConnectionState.disconnected) {
+          _connectionState = BleConnectionState.disconnected;
+          _onDisconnected();
+          notifyListeners();
+          _scheduleReconnect();
         }
-
-        _reconnectAttempt += 1;
-
-        // Reintentar conexión después de 5 segundos
-        final backoffSeconds = 5 * (1 << (_reconnectAttempt > 6 ? 6 : _reconnectAttempt - 1));
-        _retryTimer?.cancel();
-        _retryTimer = Timer(Duration(seconds: backoffSeconds), () {
-          if (_connectionState == BleConnectionState.disconnected &&
-              _connectedDeviceId != null) {
-            print('[BLE] Retrying connection (attempt $_reconnectAttempt)...');
-            connectToDevice(_connectedDeviceId!);
-          }
-        });
       },
     );
+  }
+
+  void _scheduleReconnect() {
+    if (!shouldScheduleReconnect(
+      isConnected: false,
+      currentAttempt: _reconnectAttempt,
+      maxAttempts: _maxReconnectAttempts,
+    )) {
+      print('[BLE] Reconnect budget exhausted; stopping retries');
+      return;
+    }
+
+    _reconnectAttempt += 1;
+
+    // Reintentar conexión después de 5 segundos con backoff exponencial
+    final backoffSeconds = 5 * (1 << (_reconnectAttempt > 6 ? 6 : _reconnectAttempt - 1));
+    _retryTimer?.cancel();
+    _retryTimer = Timer(Duration(seconds: backoffSeconds), () {
+      if (_connectionState == BleConnectionState.disconnected &&
+          _connectedDeviceId != null) {
+        print('[BLE] Retrying connection (attempt $_reconnectAttempt)...');
+        connectToDevice(_connectedDeviceId!, isRetry: true);
+      }
+    });
   }
 
   @visibleForTesting
@@ -400,6 +408,7 @@ class BleService extends ChangeNotifier {
     _radarModeSubscription?.cancel();
     _imuStreamSubscription?.cancel();
     _connectionState = BleConnectionState.disconnected;
+    _connectedDeviceId = null;
 
     notifyListeners();
     print('[BLE] Disconnected');
@@ -409,15 +418,22 @@ class BleService extends ChangeNotifier {
   void _onConnected(String deviceId) async {
     print('[BLE] Connected! Setting up subscriptions...');
 
-    // Delay MTU request to prevent Android BLE stack dropping the connection
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Retry mechanism for GATT operations post-connection (Race Condition Fix)
+    // Some Android devices take a few milliseconds to fully populate the GATT table.
+    int negotiatedMtu = -1;
+    for (int i = 0; i < 3; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      try {
+        negotiatedMtu = await _ble.requestMtu(deviceId: deviceId, mtu: 251);
+        print('[BLE] MTU negotiated: $negotiatedMtu');
+        break; // Success! GATT is ready.
+      } catch (e) {
+        print('[BLE] Failed to negotiate MTU (attempt ${i + 1}): $e');
+      }
+    }
 
-    // Solicitar MTU extendido para configuraciones JSON grandes (evita truncamiento)
-    try {
-      final negotiatedMtu = await _ble.requestMtu(deviceId: deviceId, mtu: 251);
-      print('[BLE] MTU negotiated: $negotiatedMtu');
-    } catch (e) {
-      print('[BLE] Failed to negotiate MTU: $e');
+    if (negotiatedMtu == -1) {
+      print('[BLE] WARNING: GATT table failed to populate after retries. Subscriptions might fail.');
     }
 
     // Suscribirse a notificaciones del reloj
@@ -432,6 +448,7 @@ class BleService extends ChangeNotifier {
     _subscribeToRadarMode(deviceId);
     await Future.delayed(const Duration(milliseconds: 150));
     _subscribeToImuStream(deviceId);
+    await Future.delayed(const Duration(milliseconds: 150));
 
     // Leer la batería inicial directamente
     final batteryChar = QualifiedCharacteristic(
@@ -787,7 +804,7 @@ class BleService extends ChangeNotifier {
         characteristicId: _calibCmdCharUuid,
         deviceId: _connectedDeviceId!,
       );
-      await _ble.writeCharacteristicWithResponse(characteristic, value: [cmd]);
+      await _enqueueWrite(() => _ble.writeCharacteristicWithResponse(characteristic, value: [cmd]));
       print('[BLE] Calib CMD sent: 0x${cmd.toRadixString(16)}');
     } catch (e) {
       print('[BLE] Error sending Calib CMD: $e');

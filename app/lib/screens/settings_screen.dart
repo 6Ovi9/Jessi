@@ -49,34 +49,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveConfig() async {
     final repo = context.read<PartnerRepository>();
     final bleService = context.read<BleService>();
-
     try {
       // Guardar en Supabase
       await repo.saveConfig(_config);
-
-      // Enviar al reloj por BLE
-      await bleService.writeConfig(_config);
-
-      if (!mounted) return;
-      setState(() => _hasChanges = false);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Configuración guardada'),
-          backgroundColor: Color(0xFF1A2A3A),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error al guardar: $e'),
+          content: Text('Error al guardar en BD: $e'),
           backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
         ),
       );
+      return;
     }
+
+    try {
+      // Enviar al reloj por BLE
+      await bleService.writeConfig(_config);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al sincronizar BLE: $e'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _hasChanges = false);
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Configuración guardada'),
+        backgroundColor: Color(0xFF1A2A3A),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _showCompassCalibDialog(BuildContext context, BleService bleService) {
@@ -267,14 +277,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   (c) => c.copyWith(gpsIntervalFarS: value.round())),
               activeColor: const Color(0xFFFFCC00),
             ),
-            _buildSliderTile(
+            _buildRangeSliderTile(
               'Remoto (>50km)',
               '${(_config.gpsIntervalRemoteMinS / 60).toStringAsFixed(0)}-${(_config.gpsIntervalRemoteMaxS / 60).toStringAsFixed(0)} min',
-              _config.gpsIntervalRemoteMinS.toDouble(),
+              RangeValues(_config.gpsIntervalRemoteMinS.toDouble(), _config.gpsIntervalRemoteMaxS.toDouble()),
               120,
               1200,
-              (value) => _updateConfig(
-                  (c) => c.copyWith(gpsIntervalRemoteMinS: value.round())),
+              (values) => _updateConfig(
+                  (c) => c.copyWith(
+                      gpsIntervalRemoteMinS: values.start.round(),
+                      gpsIntervalRemoteMaxS: values.end.round())),
               activeColor: const Color(0xFFFF6600),
             ),
           ]),
@@ -432,6 +444,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ]),
 
+          // ── Colores y Brillo de Toques ─────────────────────────────
+          _buildSection('Colores y Brillo de Toques', [
+            _buildColorTile(
+              'Color toque enviado',
+              WatchConfig.parseColor(_config.colorHapticTx),
+              _config.colorHapticTx,
+              (hex) => _updateConfig((c) => c.copyWith(colorHapticTx: hex)),
+            ),
+            _buildSliderTile(
+              'Brillo toque enviado',
+              '${_config.brightnessHapticTx}%',
+              _config.brightnessHapticTx.toDouble(),
+              10,
+              100,
+              (value) => _updateConfig((c) => c.copyWith(brightnessHapticTx: value.round())),
+              activeColor: const Color(0xFF66CCFF),
+            ),
+            _buildColorTile(
+              'Color toque recibido',
+              WatchConfig.parseColor(_config.colorHapticRx),
+              _config.colorHapticRx,
+              (hex) => _updateConfig((c) => c.copyWith(colorHapticRx: hex)),
+            ),
+            _buildSliderTile(
+              'Brillo toque recibido',
+              '${_config.brightnessHapticRx}%',
+              _config.brightnessHapticRx.toDouble(),
+              10,
+              100,
+              (value) => _updateConfig((c) => c.copyWith(brightnessHapticRx: value.round())),
+              activeColor: const Color(0xFFFF6699),
+            ),
+          ]),
+
           // ── Notificaciones ──────────────────────────────────────────
           _buildSection('Notificaciones', [
             _buildDropdownTile<String>(
@@ -546,6 +592,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         );
                       },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ]),
+
+          // ── Opciones de Sistema ────────────────────────────────────
+          _buildSection('Sistema', [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Para que la app funcione correctamente en segundo plano y mantenga la conexión BLE y GPS activa, Android requiere que desactives la optimización de batería para esta aplicación.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withValues(alpha: 0.35),
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        final isIgnoring = await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+                        if (!isIgnoring) {
+                          await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+                        } else {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('La optimización de batería ya está desactivada.'),
+                                backgroundColor: Color(0xFF1E2D2A),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.battery_alert, size: 18),
+                      label: const Text('Ignorar Optimización de Batería'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1E2D2A),
+                        foregroundColor: const Color(0xFF88FFBB),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -783,7 +880,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
         );
       },
-    );
+    ).then((_) => controller.dispose());
   }
 
   Future<void> _startCalibration(BleService ble) async {
@@ -1054,6 +1151,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: Slider(
               value: value.clamp(min, max),
+              min: min,
+              max: max,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRangeSliderTile(
+    String label,
+    String valueText,
+    RangeValues values,
+    double min,
+    double max,
+    ValueChanged<RangeValues> onChanged, {
+    Color activeColor = const Color(0xFF4488FF),
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.white.withValues(alpha: 0.75),
+                ),
+              ),
+              Text(
+                valueText,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: activeColor,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderThemeData(
+              activeTrackColor: activeColor.withValues(alpha: 0.6),
+              inactiveTrackColor: Colors.white.withValues(alpha: 0.06),
+              thumbColor: activeColor,
+              overlayColor: activeColor.withValues(alpha: 0.1),
+              trackHeight: 3,
+              rangeThumbShape: const RoundRangeSliderThumbShape(enabledThumbRadius: 6),
+            ),
+            child: RangeSlider(
+              values: RangeValues(values.start.clamp(min, max), values.end.clamp(min, max)),
               min: min,
               max: max,
               onChanged: onChanged,

@@ -105,17 +105,23 @@ services:
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
-      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:-couples-watch-secret-2024}@postgres:5432/postgres
       GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
-      GOTRUE_URI_ALLOW_LIST: ""
+      GOTRUE_URI_ALLOW_LIST: "nexus-halo://login-callback,jessi://*"
       GOTRUE_DISABLE_SIGNUP: "false"
       GOTRUE_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long-couples-watch}
       GOTRUE_JWT_EXP: 3600
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-smtp.mailtrap.io}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-2525}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-""}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS:-""}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-admin@nexus-halo.local}
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-"Nexus Halo"}
       GOTRUE_LOG_LEVEL: INFO
     depends_on:
       postgres:
@@ -135,13 +141,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-couples-watch-secret-2024}
       DEFAULT_ORGANIZATION_NAME: "Couples Watch"
       DEFAULT_PROJECT_NAME: "Jessi"
-      SUPABASE_URL: http://rest:3000
+      SUPABASE_URL: http://nginx:80
       SUPABASE_PUBLIC_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
       SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvdXBsZXMtd2F0Y2giLCJyb2xlIjoiYW5vbiIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.placeholder}
       SUPABASE_SERVICE_KEY: ${SERVICE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvdXBsZXMtd2F0Y2giLCJyb2xlIjoic2VydmljZV9yb2xlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9.placeholder}
     depends_on:
       - rest
       - auth
+      - meta
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────────────────────

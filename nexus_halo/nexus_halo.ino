@@ -89,6 +89,7 @@ volatile bool haptic_rx_pending = false;
 volatile bool calib_start_pending = false;
 volatile bool ota_request_pending = false;
 GestureType simulated_gesture = GESTURE_NONE;
+bool sleep_entry_done = false;
 
 // ── Time sync (Unix timestamp received from app via BLE) ────────────────────
 // BUG-003: All variables must be written atomically.
@@ -426,7 +427,7 @@ void loop() {
   uint32_t now_ms = millis();
 
   noInterrupts();
-  if (time_synced && (millis() - millis_at_sync > 86400000UL)) {
+  if (time_synced && (now_ms - millis_at_sync > 86400000UL)) {
     unix_base_ts += 86400; // Advance 1 day in seconds
     millis_at_sync += 86400000UL;
   }
@@ -552,6 +553,12 @@ void loop() {
     Serial.print(state_machine.getStateName(last_printed_state));
     Serial.print(" -> ");
     Serial.println(state_machine.getStateName(cur_state));
+    
+    // Notify app if we just left RADAR_MODE (covers timeouts and gestures)
+    if (last_printed_state == STATE_RADAR_MODE) {
+      ble_handler.notifyRadarModeActive(false);
+    }
+
     last_printed_state = cur_state;
   }
 
@@ -686,8 +693,19 @@ void loop() {
   battery_percent = power_manager.getBatteryPercent();
   
   if (ble_connected) {
-    if (!ble_was_connected || (now_ms - last_battery_notify_ms > 10000)) {
+    if (!ble_was_connected) {
       ble_was_connected = true;
+      last_battery_notify_ms = now_ms;
+      ble_handler.notifyBattery(battery_percent);
+      
+      // FW Bug 7 Fix: When BLE connects, if we are in deep sleep, we must 
+      // explicitly transition to STATE_WAKING_UP so that the IMU and compass 
+      // are properly powered on and initialized.
+      if (state_machine.getCurrentState() == STATE_DEEP_SLEEP) {
+        sleep_entry_done = false;
+        state_machine.transitionTo(STATE_WAKING_UP);
+      }
+    } else if (now_ms - last_battery_notify_ms > 10000) {
       last_battery_notify_ms = now_ms;
       ble_handler.notifyBattery(battery_percent);
     }
@@ -825,8 +843,6 @@ void loop() {
 // STATE HANDLERS
 // ============================================================================
 
-bool sleep_entry_done = false;
-
 void handleStateDeepSleep(GestureType gesture) {
   // If we just entered DEEP_SLEEP, configure IMU for Rise-to-Wake and clear
   // wake sources
@@ -848,6 +864,12 @@ void handleStateDeepSleep(GestureType gesture) {
     last_wake_source = WAKE_SOURCE_NONE;
     Serial.println("[POWER] Entering DEEP_SLEEP state. Configuring IMU for "
                    "Rise-to-Wake...");
+
+    if (config_save_pending) {
+      runtime_config.saveToFlash();
+      config_save_pending = false;
+      Serial.println("[CONFIG] Deferred config saved before sleep");
+    }
 
     // Power off peripherals on entry
     led_controller.setPower(false); // idempotent after BUG-010 fix in setPower()
@@ -878,9 +900,13 @@ void handleStateDeepSleep(GestureType gesture) {
   local_wake_source = last_wake_source;
   interrupts();
 
-  if (local_wake_source != WAKE_SOURCE_NONE) {
+  if (local_wake_source != WAKE_SOURCE_NONE || (!ble_connected && ble_handler.isConnected())) {
     Serial.print("[POWER] Wake source detected: ");
-    Serial.println(local_wake_source == WAKE_SOURCE_MOTION ? "MOTION" : "TAP");
+    if (local_wake_source != WAKE_SOURCE_NONE) {
+      Serial.println(local_wake_source == WAKE_SOURCE_MOTION ? "MOTION" : "TAP");
+    } else {
+      Serial.println("BLE CONNECTION");
+    }
 
     // Clear wake source and wake up
     noInterrupts();
@@ -892,9 +918,26 @@ void handleStateDeepSleep(GestureType gesture) {
     return;
   }
 
-  // Put CPU to sleep until next interrupt (unless disabled for testing)
+  // Periodic Low Battery Pulse in Deep Sleep
+  static uint32_t last_low_batt_pulse_ms = 0;
+  uint32_t wait_time = portMAX_DELAY;
+
+  if (power_manager.isLowBattery()) {
+    uint32_t time_since_pulse = millis() - last_low_batt_pulse_ms;
+    if (time_since_pulse >= TIMER_LOW_BATTERY_PULSE_MS) {
+      last_low_batt_pulse_ms = millis();
+      led_controller.setPower(true);
+      led_controller.errorBattery();
+      delay(100);
+      led_controller.setPower(false);
+      time_since_pulse = 0;
+    }
+    wait_time = TIMER_LOW_BATTERY_PULSE_MS - time_since_pulse;
+  }
+
+  // Put CPU to sleep until next interrupt OR low battery pulse
   #if !DEBUG_DISABLE_DEEP_SLEEP
-    power_manager.enterDeepSleep();
+    power_manager.enterDeepSleep(wait_time);
   #else
     delay(10); // Don't hog CPU in debug stay-awake loop
   #endif
@@ -962,15 +1005,23 @@ void handleStateClockConnected(GestureType gesture, uint32_t now_ms) {
   if ((now_ms - last_time_update_ms) >= 33) {
     last_time_update_ms = now_ms;
 
-    // Recalcular la hora actual
     uint64_t current_unix_ms = getRealEpochMs();
-    
+
     int32_t local_tz;
+    bool local_synced;
     noInterrupts();
     local_tz = tz_offset_s;
+    local_synced = time_synced;
     interrupts();
 
-    uint32_t total_secs = (uint32_t)(current_unix_ms / 1000ULL) + local_tz;
+    uint32_t base_secs = (uint32_t)(current_unix_ms / 1000ULL);
+    uint32_t total_secs;
+
+    if (local_synced && base_secs > 1000000000UL) {
+      total_secs = base_secs + local_tz;
+    } else {
+      total_secs = base_secs;
+    }
     
     uint8_t seconds = total_secs % 60;
     uint8_t minutes = (total_secs / 60) % 60;
@@ -1026,13 +1077,22 @@ void handleStateClockDisconnected(GestureType gesture, uint32_t now_ms) {
     last_time_update_ms = now_ms;
 
     uint64_t current_unix_ms = getRealEpochMs();
-    
+
     int32_t local_tz;
+    bool local_synced;
     noInterrupts();
     local_tz = tz_offset_s;
+    local_synced = time_synced;
     interrupts();
 
-    uint32_t total_secs = (uint32_t)(current_unix_ms / 1000ULL) + local_tz;
+    uint32_t base_secs = (uint32_t)(current_unix_ms / 1000ULL);
+    uint32_t total_secs;
+
+    if (local_synced && base_secs > 1000000000UL) {
+      total_secs = base_secs + local_tz;
+    } else {
+      total_secs = base_secs;
+    }
     
     uint8_t seconds = total_secs % 60;
     uint8_t minutes = (total_secs / 60) % 60;
@@ -1099,22 +1159,16 @@ void handleStateRadarMode(GestureType gesture) {
   switch (gesture) {
   case GESTURE_TAP_SIMPLE:
     // Toggle back to CLOCK
-    radar_notified = false;
-    ble_handler.notifyRadarModeActive(false);
     state_machine.transitionTo(ble_handler.isConnected() ? STATE_CLOCK_CONNECTED : STATE_CLOCK_DISCONNECTED);
     break;
 
   case GESTURE_TAP_DOUBLE:
     // Toggle to DISTANCE_MODE
-    radar_notified = false;
-    ble_handler.notifyRadarModeActive(false);
     state_machine.transitionTo(STATE_DISTANCE_MODE);
     break;
 
   case GESTURE_TAP_TRIPLE:
     // Send haptic to pareja (3 flicks)
-    radar_notified = false;
-    ble_handler.notifyRadarModeActive(false);
     state_machine.transitionTo(STATE_HAPTIC_TX);
     break;
 
@@ -1123,8 +1177,6 @@ void handleStateRadarMode(GestureType gesture) {
     break;
 
   case GESTURE_PRESS_LONG:
-    radar_notified = false;
-    ble_handler.notifyRadarModeActive(false);
     state_machine.transitionTo(STATE_DEEP_SLEEP);
     break;
 
@@ -1173,30 +1225,54 @@ void handleStateDistanceMode(GestureType gesture) {
 }
 
 void handleStateHapticTX() {
-  static bool pattern_started = false;
+  static uint8_t pulse_step = 0;
+  static uint32_t step_timer = 0;
 
   if (state_machine.stateChanged()) {
-    pattern_started = false;
+    pulse_step = 0;
+    step_timer = millis();
+    ble_handler.notifyHapticTX();
   }
 
-  if (!pattern_started) {
-    ble_handler.notifyHapticTX();
-    if (runtime_config.getConfig().hapticPatternIndex ==
-        1) {                                      // 1 = only partner
-      haptic.playPattern(HAPTIC_PATTERN_BATTERY); // confirm with a short pulse
-      state_machine.resetTimer(haptic.getPatternLength(HAPTIC_PATTERN_BATTERY) + 500);
-    } else {
-      haptic.playPattern(HAPTIC_PATTERN_RX); // long vibration pattern
-      state_machine.resetTimer(haptic.getPatternLength(HAPTIC_PATTERN_RX) + 500);
-    }
+  if (runtime_config.getConfig().hapticPatternIndex == 1) { // 1 = only partner
+    return;
+  }
 
-    uint8_t brightness_pct = runtime_config.getConfig().brightnessPercent;
+  uint32_t now = millis();
+  uint8_t brightness_pct = runtime_config.getConfig().brightnessPercent;
+  uint8_t base_brightness = (brightness_pct * 255) / 100;
 
-    uint8_t base_brightness = (brightness_pct * 255) / 100;
-
-    // Usar rosa (COLOR_HAPTIC_RX) escalado por brillo seguro
-    led_controller.fillWithBrightness(COLOR_HAPTIC_RX, base_brightness);
-    pattern_started = true;
+  switch (pulse_step) {
+    case 0:
+      led_controller.fillWithBrightness(COLOR_HAPTIC_RX, base_brightness);
+      step_timer = now;
+      pulse_step = 1;
+      break;
+    case 1:
+      if (now - step_timer >= 100) {
+        led_controller.clear();
+        led_controller.show();
+        step_timer = now;
+        pulse_step = 2;
+      }
+      break;
+    case 2:
+      if (now - step_timer >= 100) {
+        led_controller.fillWithBrightness(COLOR_HAPTIC_RX, base_brightness);
+        step_timer = now;
+        pulse_step = 3;
+      }
+      break;
+    case 3:
+      if (now - step_timer >= 100) {
+        led_controller.clear();
+        led_controller.show();
+        pulse_step = 4;
+      }
+      break;
+    case 4:
+      // Pattern complete. State machine timeout will handle the exit.
+      break;
   }
 }
 
@@ -1455,10 +1531,22 @@ void onBLETimeSync(uint32_t unix_ts, int32_t tz_offset) {
 // INTERRUPT HANDLERS
 // ============================================================================
 
+void wakeMainLoop() {
+  if (power_manager.wake_sem) {
+    xSemaphoreGive(power_manager.wake_sem);
+  }
+}
+
 void onMotionWakeup() {
   // NEW: Interrupt from IMU (INT1) during deep sleep (rise-to-wake)
   last_wake_source = WAKE_SOURCE_MOTION;
   motion_detected_flag = true;
+  
+  if (power_manager.wake_sem) {
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xSemaphoreGiveFromISR(power_manager.wake_sem, &xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+  }
 }
 
 // ============================================================================

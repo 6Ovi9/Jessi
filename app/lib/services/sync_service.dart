@@ -38,6 +38,8 @@ class SyncService extends ChangeNotifier {
 
   RealtimeChannel? _locationChannel;
   RealtimeChannel? _hapticChannel;
+  bool _isSubscribingLocation = false;
+  bool _isSubscribingHaptic = false;
 
   // ── Callbacks ──────────────────────────────────────────────────────────
 
@@ -134,11 +136,14 @@ class SyncService extends ChangeNotifier {
 
   /// Suscribirse a cambios en la ubicación de la pareja via Realtime.
   Future<void> _subscribeToPartnerLocation() async {
+    if (_isSubscribingLocation) return;
+    _isSubscribingLocation = true;
     try {
-      await _locationChannel?.unsubscribe();
-    } catch (e) {
-      print('[SYNC] Error unsubscribing location channel: $e');
-    }
+      try {
+        await _locationChannel?.unsubscribe();
+      } catch (e) {
+        print('[SYNC] Error unsubscribing location channel: $e');
+      }
     
     _locationChannel = _client
         .channel('partner-location')
@@ -171,18 +176,24 @@ class SyncService extends ChangeNotifier {
         )
         .subscribe();
 
-    print('[SYNC] Subscribed to partner location (user: $partnerUserId)');
+      print('[SYNC] Subscribed to partner location (user: $partnerUserId)');
+    } finally {
+      _isSubscribingLocation = false;
+    }
   }
 
   // ── Eventos hápticos ──────────────────────────────────────────────────
 
   /// Suscribirse a eventos hápticos dirigidos a este usuario.
   Future<void> _subscribeToHapticEvents() async {
+    if (_isSubscribingHaptic) return;
+    _isSubscribingHaptic = true;
     try {
-      await _hapticChannel?.unsubscribe();
-    } catch (e) {
-      print('[SYNC] Error unsubscribing haptic channel: $e');
-    }
+      try {
+        await _hapticChannel?.unsubscribe();
+      } catch (e) {
+        print('[SYNC] Error unsubscribing haptic channel: $e');
+      }
     
     _hapticChannel = _client
         .channel('haptic-events')
@@ -214,7 +225,10 @@ class SyncService extends ChangeNotifier {
         )
         .subscribe();
 
-    print('[SYNC] Subscribed to haptic events (user: $_myUserId)');
+      print('[SYNC] Subscribed to haptic events (user: $_myUserId)');
+    } finally {
+      _isSubscribingHaptic = false;
+    }
   }
 
   /// Enviar un evento háptico a la pareja.
