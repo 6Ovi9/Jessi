@@ -12,7 +12,7 @@
 | Componente | Chip / Módulo | Pin | Notas |
 |---|---|---|---|
 | Microcontrolador | Seeed Studio XIAO nRF52840 **Sense** | — | Incluye IMU LSM6DS3 integrado. Soporta BLE 5.4 y OTA. |
-| Anillo LEDs | 12× SK6812-MINI-E (RGB) | `D7` (datos) | LED 1 = posición 12h (físicamente arriba). Orden horario. |
+| Anillo LEDs | 12× SK6812-MINI-E (RGB) | `D7` (datos) | LED 1 = posición 12h. Orden antihorario (mapeado horario en software). |
 | Corte energía LEDs | MOSFET | `D10` | HIGH = LEDs con corriente. LOW = corte total (deep sleep). |
 | Botón táctil | TTP223 | `D8` | Solo HIGH/LOW. Sin detección nativa de gestos. Toggle mode OFF. |
 | Motor vibración | MOSFET | `D9` | HIGH = vibra. Control PWM opcional para intensidad. |

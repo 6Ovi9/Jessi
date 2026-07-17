@@ -19,7 +19,7 @@
 // LED RING CONFIG
 // ============================================================================
 
-#define LED_COUNT            12    // 12× SK6812 MINI-E (RGB+W)
+#define LED_COUNT            12    // 12× SK6812 MINI-E (RGB, counter-clockwise layout)
 #define USE_NEOPIXEL_DMA     1     // Required to prevent BLE disconnections
 #define LED_BRIGHTNESS_MAX   255   // Max PWM value
 #define LED_CLOCK_BRIGHTNESS 30    // Default brightness % for CLOCK mode (will be applied as 0-255)

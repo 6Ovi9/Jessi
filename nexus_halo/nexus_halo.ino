@@ -9,7 +9,7 @@
 
   Hardware:
   - Seeed XIAO nRF52840 Sense (nRF52840 + BLE 5.0 + LSM6DS3 IMU)
-  - 12× SK6812-MINI-E RGB+W LEDs (NeoPixel compatible)
+  - 12× SK6812-MINI-E RGB LEDs (NeoPixel compatible)
   - LIS3MDL Magnetometer on custom I2C (D4, D5)
   - TTP223 capacitive button (D8)
   - Vibration motor via MOSFET (D9)
