@@ -757,6 +757,8 @@ void loop() {
   // Manual calibration logging block removed
 #endif
 
+  state_machine.update(now_ms);
+
   bool is_entry = state_machine.stateChanged();
   state_machine.clearStateChanged();
 
