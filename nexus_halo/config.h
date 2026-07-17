@@ -156,6 +156,7 @@ enum BLE_CHAR_ID {
 #define COLOR_SUCCESS            0xFF00FF00   // Green (OTA success)
 #define COLOR_WARNING            0xFFFFCC00   // Yellow (warnings)
 #define COLOR_INFO               0xFF00CCFF   // Cyan (info)
+#define COLOR_HAPTIC_TX          0xFF66CCFF   // Light Blue (haptic send)
 #define COLOR_HAPTIC_RX          0xFFFF6699   // Pink (haptic receive)
 
 // ============================================================================

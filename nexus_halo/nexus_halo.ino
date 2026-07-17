@@ -1244,7 +1244,7 @@ void handleStateHapticTX(bool is_entry) {
 
   switch (pulse_step) {
     case 0:
-      led_controller.fillWithBrightness(COLOR_HAPTIC_RX, base_brightness);
+      led_controller.fillWithBrightness(COLOR_HAPTIC_TX, base_brightness);
       step_timer = now;
       pulse_step = 1;
       break;
@@ -1258,7 +1258,7 @@ void handleStateHapticTX(bool is_entry) {
       break;
     case 2:
       if (now - step_timer >= 100) {
-        led_controller.fillWithBrightness(COLOR_HAPTIC_RX, base_brightness);
+        led_controller.fillWithBrightness(COLOR_HAPTIC_TX, base_brightness);
         step_timer = now;
         pulse_step = 3;
       }
