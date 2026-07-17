@@ -35,38 +35,39 @@ void StateMachine::update(uint32_t stale_now_ms) {
   
   // Check timer expiration (overflow-safe)
   if (timer_active && (now_ms - timer_start_ms >= timer_duration_ms)) {
-    timer_active = false;
+    bool handled = true;
     // Transition back based on current state logic
     switch (current_state) {
       case STATE_CLOCK_CONNECTED:
       case STATE_CLOCK_DISCONNECTED:
         transitionTo(STATE_DEEP_SLEEP);
         break;
-      case STATE_CALIBRATION_MODE:
-        transitionTo(previous_state);
-        break;
       case STATE_RADAR_MODE:
       case STATE_DISTANCE_MODE:
         transitionTo(previous_state);
         break;
       case STATE_HAPTIC_RX:
-        transitionTo(previous_state);
-        break;
       case STATE_HAPTIC_TX:
         transitionTo(previous_state);
         break;
       case STATE_ERROR_NO_GPS:
         transitionTo(previous_state);
         break;
-      case STATE_WAKING_UP:
-        // WAKING_UP timed out (failed to init hardware). Fall back to DEEP_SLEEP.
-        transitionTo(STATE_DEEP_SLEEP);
-        break;
       case STATE_BATTERY_DEAD_DISPLAY:
         transitionTo(STATE_DEEP_SLEEP);
         break;
-      default:
+      case STATE_CALIBRATION_MODE:
+      case STATE_WAKING_UP:
+      case STATE_COMPASS_CALIBRATION:
+        handled = false; // Manually handled by their respective state handlers in loop
         break;
+      default:
+        handled = false;
+        break;
+    }
+    
+    if (handled) {
+      timer_active = false;
     }
   }
   
