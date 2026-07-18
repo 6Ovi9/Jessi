@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'dart:typed_data';
 
 import '../models/config_model.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -65,9 +66,10 @@ class BleService extends ChangeNotifier {
   /// UUID para sincronización de hora (escribe Unix timestamp uint32 LE)
   static final Uuid _timeSyncCharUuid =
       Uuid.parse('4a5c2a2b-5f2d-4e1b-822c-4a2d87b4c85b');
-
   static final Uuid _imuStreamCharUuid =
       Uuid.parse('4a5c2a62-5f2d-4e1b-822c-4a2d87b4c85b');
+  static final Uuid _compassStreamCharUuid =
+      Uuid.parse('4a5c2a64-5f2d-4e1b-822c-4a2d87b4c85b');
 
   // ── Estado ──────────────────────────────────────────────────────────────
 
@@ -109,6 +111,9 @@ class BleService extends ChangeNotifier {
   final _imuStreamController = StreamController<Map<String, int>>.broadcast();
   Stream<Map<String, int>> get imuStream => _imuStreamController.stream;
 
+  final _compassStreamController = StreamController<double>.broadcast();
+  Stream<double> get compassStream => _compassStreamController.stream;
+
   BleService() {
     // Constructor logic
   }
@@ -119,6 +124,7 @@ class BleService extends ChangeNotifier {
   StreamSubscription<List<int>>? _calibThresholdSubscription;
   StreamSubscription<List<int>>? _radarModeSubscription;
   StreamSubscription<List<int>>? _imuStreamSubscription;
+  StreamSubscription<List<int>>? _compassStreamSubscription;
 
   Timer? _scanTimer;
   Timer? _retryTimer;
@@ -167,9 +173,11 @@ class BleService extends ChangeNotifier {
     _calibThresholdSubscription?.cancel();
     _radarModeSubscription?.cancel();
     _imuStreamSubscription?.cancel();
+    _compassStreamSubscription?.cancel();
     _hapticTxController.close();
     _calibStatusController.close();
     _imuStreamController.close();
+    _compassStreamController.close();
     super.dispose();
   }
 
@@ -408,6 +416,7 @@ class BleService extends ChangeNotifier {
     _calibThresholdSubscription?.cancel();
     _radarModeSubscription?.cancel();
     _imuStreamSubscription?.cancel();
+    _compassStreamSubscription?.cancel();
     _connectionState = BleConnectionState.disconnected;
     _connectedDeviceId = null;
 
@@ -422,6 +431,7 @@ class BleService extends ChangeNotifier {
     _calibThresholdSubscription?.cancel(); _calibThresholdSubscription = null;
     _radarModeSubscription?.cancel(); _radarModeSubscription = null;
     _imuStreamSubscription?.cancel(); _imuStreamSubscription = null;
+    _compassStreamSubscription?.cancel(); _compassStreamSubscription = null;
   }
 
   /// Llamado al establecer conexión exitosa
@@ -460,6 +470,8 @@ class BleService extends ChangeNotifier {
     await Future.delayed(const Duration(milliseconds: 150));
     _subscribeToImuStream(deviceId);
     await Future.delayed(const Duration(milliseconds: 150));
+    _subscribeToCompassStream(deviceId);
+    await Future.delayed(const Duration(milliseconds: 150));
 
     // Leer la batería inicial directamente
     final batteryChar = QualifiedCharacteristic(
@@ -493,6 +505,7 @@ class BleService extends ChangeNotifier {
     _calibThresholdSubscription?.cancel();
     _radarModeSubscription?.cancel();
     _imuStreamSubscription?.cancel();
+    _compassStreamSubscription?.cancel();
     _radarModeActive = false;
     _batteryPercent = -1;
     _calibThreshold = null;
@@ -828,6 +841,12 @@ class BleService extends ChangeNotifier {
   /// Detener stream IMU
   Future<void> stopImuStream() => sendCalibCmd(0x06);
 
+  /// Iniciar stream Compass
+  Future<void> startCompassStream() => sendCalibCmd(0x07);
+
+  /// Detener stream Compass
+  Future<void> stopCompassStream() => sendCalibCmd(0x08);
+
   /// Iniciar calibración de wake-on-motion
   Future<void> startCalibration() async {
     if (_connectionState != BleConnectionState.connected ||
@@ -943,6 +962,32 @@ class BleService extends ChangeNotifier {
       print('[BLE] Calibration threshold error: $error');
       },
     );
+  }
+
+  void _subscribeToCompassStream(String deviceId) {
+    try {
+      final characteristic = QualifiedCharacteristic(
+        serviceId: _serviceUuid,
+        characteristicId: _compassStreamCharUuid,
+        deviceId: deviceId,
+      );
+
+      _compassStreamSubscription =
+          _ble.subscribeToCharacteristic(characteristic).listen(
+        (data) {
+          if (data.length == 4) {
+            final heading = ByteData.view(Uint8List.fromList(data).buffer)
+                .getFloat32(0, Endian.little);
+            _compassStreamController.add(heading);
+          }
+        },
+        onError: (e) {
+          print('[BLE] Error in compass stream subscription: $e');
+        },
+      );
+    } catch (e) {
+      print('[BLE] Error subscribing to compass stream: $e');
+    }
   }
 
   void _subscribeToImuStream(String deviceId) {

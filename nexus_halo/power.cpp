@@ -207,8 +207,9 @@ uint8_t PowerManager::_readBatteryVoltage() {
 #else
   // Enable voltage divider
   #ifdef PIN_VBAT_ENABLE
+  pinMode(PIN_VBAT_ENABLE, OUTPUT);
   digitalWrite(PIN_VBAT_ENABLE, LOW);
-  delay(1); // Wait for voltage to settle
+  delay(2); // Wait for voltage to settle (increased slightly for stability)
   #endif
 
   analogReference(AR_INTERNAL);  // BUG-025: 0.6V ref, 1/6 gain = 3.6V full-scale at 12-bit

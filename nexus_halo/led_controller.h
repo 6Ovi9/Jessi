@@ -43,6 +43,8 @@ public:
   static uint8_t getBlue(uint32_t color)  { return color & 0xFF; }
   static uint8_t getAlpha(uint32_t color) { return (color >> 24) & 0xFF; }
 
+  uint8_t _brightnessFromPct(uint8_t pct) const;
+
 private:
   // Buffer for raw PWM Sequence (24 bits per LED + 200 padding words for 250us reset gap)
   uint16_t pwm_buffer[LED_COUNT * 32 + 200];
@@ -69,7 +71,6 @@ private:
   const RuntimeConfigManager* runtime_cfg;
   
   void _updatePWMBuffer();
-  uint8_t _brightnessFromPct(uint8_t pct) const;
 };
 
 #endif // LED_CONTROLLER_H

@@ -12,7 +12,8 @@ El reloj cuenta con una corona de 12 LEDs direccionables, brújula magnética, b
 | :--- | :--- | :--- | :--- |
 | **Reloj y Hora** | XIAO nRF52840, Anillo LED | Muestra la hora actual (horas, minutos y segundos) usando colores personalizables en los 12 LEDs cuando el reloj se despierta. Sincronizado por BLE. | Sí (Colores por usuario) |
 | **Detección Rise-to-Wake** | Acelerómetro LSM6DS3 | Detecta el levantamiento de la muñeca para despertar el reloj automáticamente del modo de bajo consumo (`DEEP_SLEEP`). | Sí (Sensibilidad/Calibración) |
-| **Doble Giro (Haptic TX)** | Giroscopio LSM6DS3, BLE, Haptic | Un doble giro rápido de muñeca (mientras el reloj está despierto) envía un toque háptico instantáneo a la pareja a través de BLE. | Sí (Ventana de doble giro: 400-1200ms) |
+| **Doble Giro (Haptic TX)** | Giroscopio LSM6DS3, BLE, Haptic | Un doble/triple giro rápido de muñeca (mientras el reloj está despierto) envía un toque háptico instantáneo a la pareja a través de BLE. | Sí (Ventana de giro: 400-1200ms) |
+| **Diagnóstico de Brújula** | LIS3MDL, App Flutter, BLE | Envío en tiempo real a 10Hz de los datos crudos del magnetómetro para diagnosticar la calibración directamente desde la app. | N/A |
 | **Modo Radar** | Magnetómetro LIS3MDL, GPS, Anillo LED | Un LED se enciende indicando la dirección física real (brújula) en la que se encuentra la pareja en tiempo real. | Automático (GPS < 500m) |
 | **Modo Distancia** | GPS, Anillo LED | Rellena la corona de LEDs gradualmente para mostrar de manera visual la distancia a la que se encuentra la pareja. | Sí (Intervalos dinámicos) |
 | **Vibración Recibida (Haptic RX)**| BLE, Motor de Vibración | Al recibir un toque de la pareja, reproduce un patrón de vibración distintivo y una animación de destellos en el anillo LED. | Sí (Quién vibra) |
@@ -26,7 +27,7 @@ El reloj cuenta con una corona de 12 LEDs direccionables, brújula magnética, b
 El repositorio está organizado de la siguiente manera:
 
 *   [Docs/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs): Documentación de especificación técnica completa e historial de tareas.
-    *   [CHANGELOG.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs/CHANGELOG.md): Registro histórico de cambios y versiones (Actualizado a v2.1.0).
+    *   [CHANGELOG.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs/CHANGELOG.md): Registro histórico de cambios y versiones (Actualizado a v2.4.0).
     *   [description_v_2_1.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs/description_v_2_1.md): Especificación técnica de referencia (versión 2.1.0).
     *   [tasks.md](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/docs/tasks.md): Registro de correcciones y estado de tareas.
 *   [nexus_halo/](file:///c:/Users/ovijo/OneDrive/Desktop/Jessi/nexus_halo): Firmware completo en C++ para Arduino IDE compatible con **Seeed Studio XIAO nRF52840 Sense**.
@@ -41,7 +42,7 @@ El repositorio está organizado de la siguiente manera:
 
 ---
 
-## 🟢 1. Firmware (`nexus_halo`) v2.1.0+
+## 🟢 1. Firmware (`nexus_halo`) v2.4.0+
 
 El código fuente del reloj está escrito para el chip **Seeed Studio XIAO nRF52840 Sense**. El firmware implementa una máquina de estados finita (FSM) no bloqueante con 12 estados diferentes y optimizaciones avanzadas de bajo consumo.
 

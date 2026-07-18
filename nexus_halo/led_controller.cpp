@@ -305,46 +305,80 @@ void LEDController::showDistance(uint32_t dist) {
   clear();
   
   float d_km = dist / 1000.0f;
-  if (d_km > DISTANCE_THRESHOLD_MAX_KM) d_km = DISTANCE_THRESHOLD_MAX_KM;
-  if (d_km < 1.0f) d_km = 1.0f;
-  
-  float log_dist = log10(d_km);
-  float log_max = log10((float)DISTANCE_THRESHOLD_MAX_KM);
-  float normalized = log_dist / log_max; 
-  if (normalized > 1.0f) normalized = 1.0f;
-  if (normalized < 0.0f) normalized = 0.0f;
-  
-  float leds_float = normalized * LED_COUNT; 
-  if (dist > 0 && leds_float < 0.1f) {
-    leds_float = 0.1f; // Ensure at least faint glow for near distances
-  }
-  int total_leds = (int)leds_float;
-  float partial_brightness = leds_float - (float)total_leds;
-  
-  if (total_leds >= LED_COUNT) {
-    total_leds = LED_COUNT;
-    partial_brightness = 0.0f;
-  }
   
   uint8_t brightness_pct = runtime_cfg ? runtime_cfg->getConfig().brightnessPercent : LED_CLOCK_BRIGHTNESS;
   uint8_t base_brightness = _brightnessFromPct(brightness_pct);
 
-  for (int i = 0; i < LED_COUNT; i++) {
-    if (i > total_leds) break;
-    uint32_t color;
-    float segment_km = pow(10, ((float)i / (float)LED_COUNT) * log_max);
-    if (segment_km <= DISTANCE_THRESHOLD_1_KM) color = COLOR_DISTANCE_NEAR;
-    else if (segment_km <= DISTANCE_THRESHOLD_2_KM) color = COLOR_DISTANCE_PROVINCE;
-    else if (segment_km <= DISTANCE_THRESHOLD_3_KM) color = COLOR_DISTANCE_FAR;
-    else if (segment_km <= DISTANCE_THRESHOLD_4_KM) color = COLOR_DISTANCE_VFAR;
-    else color = COLOR_DISTANCE_EXTREME;
+  // Fallback defaults if runtime config is missing
+  uint8_t leds_near = 3, leds_prov = 3, leds_far = 2, leds_vfar = 2, leds_extr = 2;
+  uint32_t c_near = COLOR_DISTANCE_NEAR, c_prov = COLOR_DISTANCE_PROVINCE, c_far = COLOR_DISTANCE_FAR, c_vfar = COLOR_DISTANCE_VFAR, c_extr = COLOR_DISTANCE_EXTREME;
+  float t1 = DISTANCE_THRESHOLD_1_KM, t2 = DISTANCE_THRESHOLD_2_KM, t3 = DISTANCE_THRESHOLD_3_KM, t4 = DISTANCE_THRESHOLD_4_KM, t_max = DISTANCE_THRESHOLD_MAX_KM;
 
-    if (i < total_leds) {
-      setLEDBrightness(i, color, base_brightness);
-    } else if (i == total_leds && partial_brightness > 0.05f) {
-      setLEDBrightness(i, color, (uint8_t)(base_brightness * partial_brightness));
-    }
+  if (runtime_cfg) {
+    const RuntimeConfig& cfg = runtime_cfg->getConfig();
+    leds_near = cfg.ledsDistanceNear;
+    leds_prov = cfg.ledsDistanceProv;
+    leds_far  = cfg.ledsDistanceFar;
+    leds_vfar = cfg.ledsDistanceVFar;
+    leds_extr = cfg.ledsDistanceExtr;
+    c_near = cfg.colorDistanceNear;
+    c_prov = cfg.colorDistanceProv;
+    c_far  = cfg.colorDistanceFar;
+    c_vfar = cfg.colorDistanceVFar;
+    c_extr = cfg.colorDistanceExtr;
+    t1 = cfg.distThresh1Km;
+    t2 = cfg.distThresh2Km;
+    t3 = cfg.distThresh3Km;
+    t4 = cfg.distThresh4Km;
+    t_max = cfg.distThreshMaxKm;
   }
+
+  // Cap distance at t_max
+  if (d_km > t_max) d_km = t_max;
+
+  // Determine which zone we are in and calculate how many LEDs to light up.
+  // We light up all LEDs from previous zones fully.
+  int full_leds = 0;
+  float partial_brightness = 0.0f;
+  uint32_t partial_color = 0;
+
+  // Helper lambda or inline logic to fill previously passed zones
+  auto addZone = [&](float lower_bound, float upper_bound, uint8_t zone_leds, uint32_t zone_color) {
+    if (d_km > lower_bound) {
+      if (d_km >= upper_bound) {
+        // Distance passed this zone completely
+        for (int i = 0; i < zone_leds; i++) {
+          setLEDBrightness(full_leds++, zone_color, base_brightness);
+        }
+      } else {
+        // Distance falls within this zone
+        float fraction = (d_km - lower_bound) / (upper_bound - lower_bound);
+        float leds_float = fraction * zone_leds;
+        
+        // Ensure at least a faint glow if d_km > 0
+        if (dist > 0 && full_leds == 0 && leds_float < 0.1f) leds_float = 0.1f;
+        
+        int filled = (int)leds_float;
+        for (int i = 0; i < filled; i++) {
+          setLEDBrightness(full_leds++, zone_color, base_brightness);
+        }
+        partial_brightness = leds_float - filled;
+        partial_color = zone_color;
+      }
+    }
+  };
+
+  addZone(0.0f, t1, leds_near, c_near);
+  addZone(t1, t2, leds_prov, c_prov);
+  addZone(t2, t3, leds_far, c_far);
+  addZone(t3, t4, leds_vfar, c_vfar);
+  addZone(t4, t_max, leds_extr, c_extr);
+
+  // Draw the partial LED if there's space
+  if (full_leds < LED_COUNT && partial_brightness > 0.02f) {
+    setLEDBrightness(full_leds, partial_color, (uint8_t)(base_brightness * partial_brightness));
+  }
+
   show();
 }
 

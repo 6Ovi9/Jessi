@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../models/config_model.dart';
 import '../repositories/partner_repository.dart';
@@ -58,8 +59,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final isConnected = bleService.connectionState == BleConnectionState.connected;
     final distanceKm = locationService.distanceKm;
     final bearing = locationService.bearingDeg;
-    final heading = locationService.currentPosition?.heading ?? 0.0;
-    final relativeBearing = (bearing - heading + 360) % 360;
+    // The phone's GPS heading is inaccurate when stationary, causing the arrow to jump randomly.
+    // By using raw bearing, the arrow points to the partner relative to True North (Top of screen = North).
+    final relativeBearing = bearing;
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A1A),
@@ -110,7 +112,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 child: Column(
                   children: [
                     // Distancia y dirección
-                    _buildDistanceCard(distanceKm, relativeBearing, isConnected),
+                    _buildDistanceCard(distanceKm, relativeBearing, isConnected, locationService),
                     const SizedBox(height: 12),
                     // Estado del sistema
                     _buildStatusCard(
@@ -207,6 +209,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           // Acciones
           Row(
             children: [
+              // Botón de actualizar
+              IconButton(
+                onPressed: () async {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Actualizando ubicación...')),
+                  );
+                  final sync = context.read<SyncService>();
+                  final loc = context.read<LocationService>();
+                  try {
+                    final partnerLoc = await sync.fetchPartnerLocation();
+                    if (partnerLoc != null && partnerLoc.isValid) {
+                      loc.updatePartnerLocation(
+                        LatLng(partnerLoc.latitude, partnerLoc.longitude),
+                      );
+                    }
+                    await loc.forceUpdate();
+                  } catch (e) {
+                    debugPrint('Error en refresh: $e');
+                  }
+                },
+                icon: Icon(
+                  Icons.refresh_rounded,
+                  color: Colors.white.withValues(alpha: 0.7),
+                ),
+              ),
               // Botón de configuración
               IconButton(
                 onPressed: () {
@@ -292,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildDistanceCard(
-      double distanceKm, double bearing, bool isConnected) {
+      double distanceKm, double bearing, bool isConnected, LocationService locationService) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -344,7 +371,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 Text(
                   distanceKm >= 0
                       ? _formatDistance(distanceKm)
-                      : 'Sin datos',
+                      : (locationService.currentPosition == null
+                          ? 'Buscando tu GPS...'
+                          : 'Buscando pareja...'),
                   style: const TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
@@ -355,7 +384,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 Text(
                   distanceKm >= 0
                       ? 'Bearing: ${bearing.toStringAsFixed(0)}°'
-                      : 'Esperando ubicación de la pareja',
+                      : (locationService.currentPosition == null
+                          ? 'Asegúrate de dar permisos de ubicación'
+                          : 'Esperando ubicación de la pareja'),
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.white.withValues(alpha: 0.4),

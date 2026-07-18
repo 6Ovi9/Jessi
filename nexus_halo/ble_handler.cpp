@@ -27,6 +27,9 @@ uint8_t const BLE_TIME_SYNC_UUID_128[16] = {
 uint8_t const BLE_IMU_STREAM_UUID_128[16] = {
   0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x62, 0x2A, 0x5C, 0x4A
 };
+uint8_t const BLE_COMPASS_STREAM_UUID_128[16] = {
+  0x5B, 0xC8, 0xB4, 0x87, 0x2D, 0x4A, 0x2C, 0x82, 0x1B, 0x4E, 0x2D, 0x5F, 0x64, 0x2A, 0x5C, 0x4A
+};
 
 BLEHandler* BLEHandler::instance = nullptr;
 
@@ -47,6 +50,7 @@ BLEHandler::BLEHandler()
     ota_char(BLE_OTA_UUID_128),
     time_sync_char(BLE_TIME_SYNC_UUID_128),
     imu_stream_char(BLE_IMU_STREAM_UUID_128),
+    compass_stream_char(BLE_COMPASS_STREAM_UUID_128),
     last_bearing(0),
     last_distance(0),
     radar_mode_requested(false),
@@ -62,7 +66,9 @@ BLEHandler::BLEHandler()
     callback_threshold_write(nullptr),
     callback_ota_request(nullptr),
     callback_time_sync(nullptr),
-    imu_stream_requested(false)
+    conn_param_requested(false),
+    imu_stream_requested(false),
+    compass_stream_requested(false)
 {
   instance = this;
   memset(config_json_buf, 0, sizeof(config_json_buf));
@@ -172,6 +178,11 @@ void BLEHandler::begin() {
   imu_stream_char.setFixedLen(4);
   imu_stream_char.begin();
 
+  compass_stream_char.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
+  compass_stream_char.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  compass_stream_char.setFixedLen(4);
+  compass_stream_char.begin();
+
   // Initialize values
   float zero_f = 0.0f;
   bearing_char.write(&zero_f, 4);
@@ -245,12 +256,16 @@ void BLEHandler::_onConnect(uint16_t conn_handle) {
   active_conn_handle = conn_handle;
   conn_timestamp = millis();
   conn_param_requested = false;
+  radar_mode_requested = false;
+  imu_stream_requested = false;
+  compass_stream_requested = false;
 }
 
 void BLEHandler::_onDisconnect(uint16_t conn_handle, uint8_t reason) {
   ble_connected = false;
   // Reset streaming flag so reconnect starts clean (BUG-1 fix)
   imu_stream_requested = false;
+  compass_stream_requested = false;
 }
 
 void BLEHandler::_onWrite(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
@@ -299,6 +314,8 @@ void BLEHandler::_onWrite(uint16_t conn_handle, BLECharacteristic* chr, uint8_t*
     else if (cmd == 0x04 && callback_compass_calib_start) callback_compass_calib_start();
     else if (cmd == 0x05) imu_stream_requested = true;
     else if (cmd == 0x06) imu_stream_requested = false;
+    else if (cmd == 0x07) compass_stream_requested = true;
+    else if (cmd == 0x08) compass_stream_requested = false;
   }
   else if (chr == &calib_threshold_char) {
     calib_threshold = data[0];
@@ -362,6 +379,12 @@ void BLEHandler::notifyBearing(float bearing) {
   if (!ble_init_ok) return;
   bearing_char.write(&bearing, 4);
   if (ble_connected) bearing_char.notify(&bearing, 4);
+}
+
+void BLEHandler::notifyCompassStream(float heading) {
+  if (!ble_init_ok) return;
+  compass_stream_char.write(&heading, 4);
+  if (ble_connected) compass_stream_char.notify(&heading, 4);
 }
 
 void BLEHandler::notifyDistance(uint32_t distance_m) {

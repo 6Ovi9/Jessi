@@ -49,6 +49,33 @@ class WatchConfig {
   // Double-flick window (ms)
   final int doubleFlickWindowMs;
 
+  // Triple-flick window (ms)
+  final int tripleFlickWindowMs;
+
+  // Compass / Radar color
+  final String colorRadar;
+
+  // Distance gauge colors
+  final String colorDistanceNear;
+  final String colorDistanceProv;
+  final String colorDistanceFar;
+  final String colorDistanceVFar;
+  final String colorDistanceExtr;
+
+  // Distance thresholds (km)
+  final int distThresh1Km;
+  final int distThresh2Km;
+  final int distThresh3Km;
+  final int distThresh4Km;
+  final int distThreshMaxKm;
+
+  // LED counts per distance zone (must sum to 12)
+  final int ledsDistanceNear;
+  final int ledsDistanceProv;
+  final int ledsDistanceFar;
+  final int ledsDistanceVFar;
+  final int ledsDistanceExtr;
+
   const WatchConfig({
     required this.userId,
     this.clockTimeoutS = 5,
@@ -59,7 +86,7 @@ class WatchConfig {
     this.colorHoursDisc = 'FF001478',
     this.colorMinutesDisc = 'FF003CC8',
     this.colorSecondsDisc = 'FF2864FF',
-    this.brightnessPercent = 60,
+    this.brightnessPercent = 15,
     this.lowBatteryThreshold = 15,
     this.logarithmicBrightness = true,
     this.hapticPattern = 'both',
@@ -68,7 +95,6 @@ class WatchConfig {
     this.brightnessHapticTx = 100,
     this.brightnessHapticRx = 100,
     this.gpsIntervalPrecisionS = 3,
-
     this.gpsIntervalNearS = 60,
     this.gpsIntervalFarS = 180,
     this.gpsIntervalRemoteMinS = 300,
@@ -76,6 +102,23 @@ class WatchConfig {
     this.wakeThreshold = 2,
     this.gyroThreshold = 260,
     this.doubleFlickWindowMs = 800,
+    this.tripleFlickWindowMs = 1200,
+    this.colorRadar = 'FF0080FF',
+    this.colorDistanceNear = 'FF0080FF',
+    this.colorDistanceProv = 'FF00CC44',
+    this.colorDistanceFar = 'FFFFCC00',
+    this.colorDistanceVFar = 'FFFF6600',
+    this.colorDistanceExtr = 'FFFF0000',
+    this.distThresh1Km = 15,
+    this.distThresh2Km = 50,
+    this.distThresh3Km = 150,
+    this.distThresh4Km = 350,
+    this.distThreshMaxKm = 500,
+    this.ledsDistanceNear = 3,
+    this.ledsDistanceProv = 3,
+    this.ledsDistanceFar = 2,
+    this.ledsDistanceVFar = 2,
+    this.ledsDistanceExtr = 2,
   });
 
   /// Crear config por defecto para un usuario
@@ -129,6 +172,23 @@ class WatchConfig {
       wakeThreshold: (json['wake_threshold'] as num?)?.toInt() ?? 2,
       gyroThreshold: (json['gyro_threshold'] as num?)?.toInt() ?? 260,
       doubleFlickWindowMs: (json['double_flick_window_ms'] as num?)?.toInt() ?? 800,
+      tripleFlickWindowMs: (json['triple_flick_window_ms'] as num?)?.toInt() ?? 1200,
+      colorRadar: json['color_radar'] as String? ?? 'FF0080FF',
+      colorDistanceNear: json['color_distance_near'] as String? ?? 'FF0080FF',
+      colorDistanceProv: json['color_distance_prov'] as String? ?? 'FF00CC44',
+      colorDistanceFar: json['color_distance_far'] as String? ?? 'FFFFCC00',
+      colorDistanceVFar: json['color_distance_vfar'] as String? ?? 'FFFF6600',
+      colorDistanceExtr: json['color_distance_extr'] as String? ?? 'FFFF0000',
+      distThresh1Km: (json['dist_thresh_1_km'] as num?)?.toInt() ?? 15,
+      distThresh2Km: (json['dist_thresh_2_km'] as num?)?.toInt() ?? 50,
+      distThresh3Km: (json['dist_thresh_3_km'] as num?)?.toInt() ?? 150,
+      distThresh4Km: (json['dist_thresh_4_km'] as num?)?.toInt() ?? 350,
+      distThreshMaxKm: (json['dist_thresh_max_km'] as num?)?.toInt() ?? 500,
+      ledsDistanceNear: (json['leds_distance_near'] as num?)?.toInt() ?? 3,
+      ledsDistanceProv: (json['leds_distance_prov'] as num?)?.toInt() ?? 3,
+      ledsDistanceFar: (json['leds_distance_far'] as num?)?.toInt() ?? 2,
+      ledsDistanceVFar: (json['leds_distance_vfar'] as num?)?.toInt() ?? 2,
+      ledsDistanceExtr: (json['leds_distance_extr'] as num?)?.toInt() ?? 2,
     );
   }
 
@@ -160,6 +220,23 @@ class WatchConfig {
       'wake_threshold': wakeThreshold,
       'gyro_threshold': gyroThreshold,
       'double_flick_window_ms': doubleFlickWindowMs,
+      'triple_flick_window_ms': tripleFlickWindowMs,
+      'color_radar': colorRadar,
+      'color_distance_near': colorDistanceNear,
+      'color_distance_prov': colorDistanceProv,
+      'color_distance_far': colorDistanceFar,
+      'color_distance_vfar': colorDistanceVFar,
+      'color_distance_extr': colorDistanceExtr,
+      'dist_thresh_1_km': distThresh1Km,
+      'dist_thresh_2_km': distThresh2Km,
+      'dist_thresh_3_km': distThresh3Km,
+      'dist_thresh_4_km': distThresh4Km,
+      'dist_thresh_max_km': distThreshMaxKm,
+      'leds_distance_near': ledsDistanceNear,
+      'leds_distance_prov': ledsDistanceProv,
+      'leds_distance_far': ledsDistanceFar,
+      'leds_distance_vfar': ledsDistanceVFar,
+      'leds_distance_extr': ledsDistanceExtr,
     };
   }
 
@@ -186,6 +263,23 @@ class WatchConfig {
       'wt': wakeThreshold,
       'gt': gyroThreshold,
       'df': doubleFlickWindowMs,
+      'tf': tripleFlickWindowMs,
+      'cra': colorRadar,
+      'cdn': colorDistanceNear,
+      'cdp': colorDistanceProv,
+      'cdf': colorDistanceFar,
+      'cdv': colorDistanceVFar,
+      'cde': colorDistanceExtr,
+      'dt1': distThresh1Km,
+      'dt2': distThresh2Km,
+      'dt3': distThresh3Km,
+      'dt4': distThresh4Km,
+      'dtm': distThreshMaxKm,
+      'ln': ledsDistanceNear,
+      'lp': ledsDistanceProv,
+      'lf': ledsDistanceFar,
+      'lv': ledsDistanceVFar,
+      'le': ledsDistanceExtr,
     };
   }
 
@@ -237,6 +331,23 @@ class WatchConfig {
     int? wakeThreshold,
     int? gyroThreshold,
     int? doubleFlickWindowMs,
+    int? tripleFlickWindowMs,
+    String? colorRadar,
+    String? colorDistanceNear,
+    String? colorDistanceProv,
+    String? colorDistanceFar,
+    String? colorDistanceVFar,
+    String? colorDistanceExtr,
+    int? distThresh1Km,
+    int? distThresh2Km,
+    int? distThresh3Km,
+    int? distThresh4Km,
+    int? distThreshMaxKm,
+    int? ledsDistanceNear,
+    int? ledsDistanceProv,
+    int? ledsDistanceFar,
+    int? ledsDistanceVFar,
+    int? ledsDistanceExtr,
   }) {
     return WatchConfig(
       userId: userId ?? this.userId,
@@ -264,6 +375,23 @@ class WatchConfig {
       wakeThreshold: wakeThreshold ?? this.wakeThreshold,
       gyroThreshold: gyroThreshold ?? this.gyroThreshold,
       doubleFlickWindowMs: doubleFlickWindowMs ?? this.doubleFlickWindowMs,
+      tripleFlickWindowMs: tripleFlickWindowMs ?? this.tripleFlickWindowMs,
+      colorRadar: colorRadar ?? this.colorRadar,
+      colorDistanceNear: colorDistanceNear ?? this.colorDistanceNear,
+      colorDistanceProv: colorDistanceProv ?? this.colorDistanceProv,
+      colorDistanceFar: colorDistanceFar ?? this.colorDistanceFar,
+      colorDistanceVFar: colorDistanceVFar ?? this.colorDistanceVFar,
+      colorDistanceExtr: colorDistanceExtr ?? this.colorDistanceExtr,
+      distThresh1Km: distThresh1Km ?? this.distThresh1Km,
+      distThresh2Km: distThresh2Km ?? this.distThresh2Km,
+      distThresh3Km: distThresh3Km ?? this.distThresh3Km,
+      distThresh4Km: distThresh4Km ?? this.distThresh4Km,
+      distThreshMaxKm: distThreshMaxKm ?? this.distThreshMaxKm,
+      ledsDistanceNear: ledsDistanceNear ?? this.ledsDistanceNear,
+      ledsDistanceProv: ledsDistanceProv ?? this.ledsDistanceProv,
+      ledsDistanceFar: ledsDistanceFar ?? this.ledsDistanceFar,
+      ledsDistanceVFar: ledsDistanceVFar ?? this.ledsDistanceVFar,
+      ledsDistanceExtr: ledsDistanceExtr ?? this.ledsDistanceExtr,
     );
   }
 }

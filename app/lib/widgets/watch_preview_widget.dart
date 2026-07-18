@@ -260,39 +260,73 @@ class _WatchPainter extends CustomPainter {
   void _drawDistanceMode(
       Canvas canvas, Offset center, double ringRadius, double ledRadius) {
     final brightness = config.brightnessPercent / 100.0;
+    
+    // Cargar config actual de las zonas
+    final ledsNear = config.ledsDistanceNear;
+    final ledsProv = config.ledsDistanceProv;
+    final ledsFar  = config.ledsDistanceFar;
+    final ledsVFar = config.ledsDistanceVFar;
+    final ledsExtr = config.ledsDistanceExtr;
+    
+    final t1 = config.distThresh1Km.toDouble();
+    final t2 = config.distThresh2Km.toDouble();
+    final t3 = config.distThresh3Km.toDouble();
+    final t4 = config.distThresh4Km.toDouble();
+    final tMax = config.distThreshMaxKm.toDouble();
+    
+    final cNear = WatchConfig.parseColor(config.colorDistanceNear);
+    final cProv = WatchConfig.parseColor(config.colorDistanceProv);
+    final cFar  = WatchConfig.parseColor(config.colorDistanceFar);
+    final cVFar = WatchConfig.parseColor(config.colorDistanceVFar);
+    final cExtr = WatchConfig.parseColor(config.colorDistanceExtr);
 
-    // Calculamos la distancia en escala logarítmica para ser sensibles a cortas distancias.
-    // Idéntico al firmware en C++
-    double dM = distanceKm * 1000.0;
-    if (dM < 10.0) dM = 10.0; // Mínimo 10 metros
+    double dKm = distanceKm;
+    if (dKm > tMax) dKm = tMax;
+
+    // Buffer para los LEDs a dibujar
+    final List<Color> ledColors = List.filled(12, Colors.transparent);
+    final List<double> ledBrightnesses = List.filled(12, 0.0);
     
-    final logDist = log(dM) / ln10; // log10(x) = ln(x) / ln(10)
-    final normalized = ((logDist - 1.0) / 5.7).clamp(0.0, 1.0);
+    int fullLeds = 0;
     
-    final ledsFloat = 1.0 + normalized * 11.0;
-    int ledsOn = ledsFloat.floor();
-    double partialBrightness = ledsFloat - ledsOn;
-    
-    if (ledsOn >= 12) {
-      ledsOn = 12;
-      partialBrightness = 0.0;
+    void addZone(double lowerBound, double upperBound, int zoneLeds, Color zoneColor) {
+      if (dKm > lowerBound && fullLeds < 12) {
+        if (dKm >= upperBound) {
+          for (int i = 0; i < zoneLeds && fullLeds < 12; i++) {
+            ledColors[fullLeds] = zoneColor;
+            ledBrightnesses[fullLeds] = brightness;
+            fullLeds++;
+          }
+        } else {
+          double fraction = (dKm - lowerBound) / (upperBound - lowerBound);
+          double ledsFloat = fraction * zoneLeds;
+          
+          if (distanceKm > 0 && fullLeds == 0 && ledsFloat < 0.1) {
+            ledsFloat = 0.1;
+          }
+          
+          int filled = ledsFloat.floor();
+          for (int i = 0; i < filled && fullLeds < 12; i++) {
+            ledColors[fullLeds] = zoneColor;
+            ledBrightnesses[fullLeds] = brightness;
+            fullLeds++;
+          }
+          
+          double partial = ledsFloat - filled;
+          if (fullLeds < 12 && partial > 0.02) {
+            ledColors[fullLeds] = zoneColor;
+            ledBrightnesses[fullLeds] = brightness * partial;
+            fullLeds++;
+          }
+        }
+      }
     }
 
-    // Colores por rango de distancia
-    const distanceColors = [
-      Color(0xFF0080FF), // Azul (0-15km) — LEDs 1-4
-      Color(0xFF0080FF),
-      Color(0xFF0080FF),
-      Color(0xFF0080FF),
-      Color(0xFF00CC44), // Verde (15-50km) — LEDs 5-7
-      Color(0xFF00CC44),
-      Color(0xFF00CC44),
-      Color(0xFFFFCC00), // Amarillo (50-150km) — LEDs 8-9
-      Color(0xFFFFCC00),
-      Color(0xFFFF6600), // Naranja (150-350km) — LEDs 10-11
-      Color(0xFFFF6600),
-      Color(0xFFFF0000), // Rojo (350-500km) — LED 12
-    ];
+    addZone(0.0, t1, ledsNear, cNear);
+    addZone(t1, t2, ledsProv, cProv);
+    addZone(t2, t3, ledsFar, cFar);
+    addZone(t3, t4, ledsVFar, cVFar);
+    addZone(t4, tMax, ledsExtr, cExtr);
 
     for (int i = 0; i < 12; i++) {
       final physicalIndex = _physicalIndex(i);
@@ -302,16 +336,7 @@ class _WatchPainter extends CustomPainter {
         center.dy + sin(angle) * ringRadius,
       );
 
-      double ledBrightness = 0;
-      final color = distanceColors[i];
-
-      if (i < ledsOn) {
-        ledBrightness = brightness;
-      } else if (i == ledsOn) {
-        ledBrightness = brightness * partialBrightness;
-      }
-
-      _drawLed(canvas, pos, ledRadius, color, ledBrightness);
+      _drawLed(canvas, pos, ledRadius, ledColors[i], ledBrightnesses[i]);
     }
   }
 

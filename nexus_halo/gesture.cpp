@@ -26,13 +26,16 @@ void GestureDetector::begin() {
 void GestureDetector::update(uint32_t now_ms) {
   // Check multi-flick timeout: if we were waiting for more flicks but no more came within the window,
   // report the accumulated flicks (1 flick = GESTURE_TAP_SIMPLE, 2 flicks = GESTURE_TAP_DOUBLE)
-  if (flick_count > 0 && (now_ms - sequence_start_ms) > double_flick_window) {
-    if (detected_gesture == GESTURE_NONE) {
-      if (flick_count == 1) detected_gesture = GESTURE_TAP_SIMPLE;
-      else if (flick_count >= 2) detected_gesture = GESTURE_TAP_DOUBLE;
-      gesture_reported = false;
+  if (flick_count > 0) {
+    uint16_t current_window = (flick_count == 1) ? double_flick_window : triple_flick_window;
+    if ((now_ms - last_flick_ms) > current_window) {
+      if (detected_gesture == GESTURE_NONE) {
+        if (flick_count == 1) detected_gesture = GESTURE_TAP_SIMPLE;
+        else if (flick_count >= 2) detected_gesture = GESTURE_TAP_DOUBLE;
+        gesture_reported = false;
+      }
+      flick_count = 0;
     }
-    flick_count = 0;
   }
 
   // If we have a reference to the IMU, use gyroscope flick detection
@@ -66,7 +69,8 @@ void GestureDetector::update(uint32_t now_ms) {
         sequence_start_ms = now_ms;
       } else {
         uint32_t gap = now_ms - prev_flick_ms;
-        if (gap <= double_flick_window) {
+        uint16_t allowed_gap = (flick_count == 1) ? double_flick_window : triple_flick_window;
+        if (gap <= allowed_gap) {
           flick_count++;
           if (flick_count >= 3) {
             if (gesture_reported || detected_gesture == GESTURE_NONE) {

@@ -357,8 +357,15 @@ void CompassController::update(float ax, float ay, float az) {
 
   _applyCalibration(cx, cy, cz);
 
-  float cx_comp = cx;
-  float cy_comp = cy;
+  // Align LIS3MDL axes to the Watch Body (LSM6DS3) before tilt compensation.
+  // Hardware empirical math: LSM6DS3 Y is Left, but LIS3MDL Y is Right.
+  // Invert cy to make it Left-aligned so tilt compensation formulas work correctly.
+  float cx_aligned = cx;
+  float cy_aligned = -cy;
+  float cz_aligned = cz;
+
+  float cx_comp = cx_aligned;
+  float cy_comp = cy_aligned;
   float accel_mag = sqrtf(ax * ax + ay * ay + az * az);
   if (accel_mag > 0.1f) {
     float norm_ax = ax / accel_mag;
@@ -376,8 +383,8 @@ void CompassController::update(float ax, float ay, float az) {
     float sinRoll = sin(roll);
     float cosRoll = cos(roll);
 
-    cx_comp = cx * cosPitch + cy * sinRoll * sinPitch + cz * cosRoll * sinPitch;
-    cy_comp = cy * cosRoll - cz * sinRoll;
+    cx_comp = cx_aligned * cosPitch + cy_aligned * sinRoll * sinPitch + cz_aligned * cosRoll * sinPitch;
+    cy_comp = cy_aligned * cosRoll - cz_aligned * sinRoll;
   }
 
   history_x[history_idx] = cx_comp;
@@ -424,8 +431,10 @@ void CompassController::update(float ax, float ay, float az) {
 }
 
 float CompassController::_calculateHeading(float x, float y) {
-  float heading_rad = atan2(-y, x);
-  float heading_deg = heading_rad * 180.0f / M_PI;
+  // Convert raw X/Y (already hard-iron corrected and tilt compensated) to degrees.
+  // x is Forward, y is Left.
+  // To get a standard clockwise compass heading (0=N, 90=E), we use atan2(-y, x).
+  float heading_deg = atan2(-y, x) * 180.0f / (float)M_PI;
   return fmod(heading_deg + 360.0f, 360.0f);
 }
 

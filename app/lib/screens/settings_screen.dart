@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 
 import '../main.dart';
 import '../models/config_model.dart';
@@ -11,6 +13,8 @@ import '../services/ble_service.dart';
 import '../widgets/watch_preview_widget.dart';
 import 'wake_calibration_screen.dart';
 import 'wrist_flick_calibration_screen.dart';
+import 'compass_diagnostic_screen.dart';
+import '../services/sync_service.dart';
 
 /// Pantalla de configuración del reloj.
 ///
@@ -31,6 +35,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late WatchConfig _config;
   bool _hasChanges = false;
+  bool _isHapticSending = false;
 
   @override
   void initState() {
@@ -150,7 +155,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Brillo global',
               '${_config.brightnessPercent}%',
               _config.brightnessPercent.toDouble(),
-              10,
+              0,
               100,
               (value) => _updateConfig(
                   (c) => c.copyWith(brightnessPercent: value.round())),
@@ -169,21 +174,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildSection('Temporizadores', [
             _buildSliderTile(
               'Timeout reloj → sleep',
-              '${_config.sleepTimeoutS}s',
-              _config.sleepTimeoutS.toDouble(),
-              3,
-              30,
-              (value) => _updateConfig(
-                  (c) => c.copyWith(sleepTimeoutS: value.round())),
-            ),
-            _buildSliderTile(
-              'Timeout radar/distancia → reloj',
               '${_config.clockTimeoutS}s',
               _config.clockTimeoutS.toDouble(),
               3,
               30,
               (value) => _updateConfig(
                   (c) => c.copyWith(clockTimeoutS: value.round())),
+            ),
+            _buildSliderTile(
+              'Timeout radar/distancia → reloj',
+              '${_config.sleepTimeoutS}s',
+              _config.sleepTimeoutS.toDouble(),
+              3,
+              30,
+              (value) => _updateConfig(
+                  (c) => c.copyWith(sleepTimeoutS: value.round())),
             ),
           ]),
 
@@ -367,12 +372,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   (c) => c.copyWith(doubleFlickWindowMs: value.round())),
               activeColor: const Color(0xFF00FFCC),
             ),
+            _buildSliderTile(
+              'Ventana de triple giro',
+              '${_config.tripleFlickWindowMs} ms',
+              _config.tripleFlickWindowMs.toDouble(),
+              400,
+              2000,
+              (value) => _updateConfig(
+                  (c) => c.copyWith(tripleFlickWindowMs: value.round())),
+              activeColor: const Color(0xFF00DDDD),
+            ),
             Padding(
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: Text(
                 'Sensibilidad: Umbral en dps (menor = más sensible). Recomendado: 260 dps.\n'
-                'Ventana de doble giro: Tiempo límite entre los dos giros rápidos para que cuente como doble flick. Recomendado: 800 ms.',
+                'Ventanas de giro: Tiempo límite entre giros rápidos. Recomendado: 800 ms (doble), 1200 ms (triple).',
                 style: TextStyle(
                   fontSize: 11,
                   color: Colors.white.withValues(alpha: 0.25),
@@ -442,6 +457,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
+            ListTile(
+              leading: const Icon(Icons.explore_rounded, color: Colors.blueAccent),
+              title: const Text('Diagnóstico de Brújula'),
+              subtitle: const Text('Ver el flujo de la brújula en tiempo real', style: TextStyle(color: Colors.white70)),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CompassDiagnosticScreen()),
+                );
+              },
+            ),
+            const Divider(color: Colors.white10, height: 1),
           ]),
 
           // ── Colores y Brillo de Toques ─────────────────────────────
@@ -499,14 +527,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: connected
-                      ? () async {
+                  onPressed: _isHapticSending
+                      ? null
+                      : () async {
+                          setState(() => _isHapticSending = true);
                           try {
-                            await bleService.sendHapticCommand();
+                            final syncService = context.read<SyncService>();
+                            
+                            // Send local BLE command concurrently with Supabase to avoid network delay feeling laggy on watch
+                            if (connected) {
+                              bleService.sendHapticCommand().catchError((_) {});
+                            }
+                            
+                            await syncService.sendHapticEvent();
+
                             if (!mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: const Text('Toque de prueba enviado al reloj'),
+                                content: const Text('Toque enviado a tu pareja'),
                                 backgroundColor: const Color(0xFF1E2D2A),
                                 behavior: SnackBarBehavior.floating,
                                 shape: RoundedRectangleBorder(
@@ -526,13 +564,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                               ),
                             );
+                          } finally {
+                            if (mounted) setState(() => _isHapticSending = false);
                           }
-                        }
-                      : null,
-                  icon: const Icon(Icons.vibration_rounded, size: 18),
-                  label: Text(connected
-                      ? 'Probar vibración (Enviar toque)'
-                      : 'Conecta el reloj primero'),
+                        },
+                  icon: _isHapticSending 
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.vibration_rounded, size: 18),
+                  label: const Text('Probar vibración (Enviar toque)'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1C2E2A),
                     foregroundColor: const Color(0xFF88FFBB),
@@ -544,6 +583,212 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ),
+              ),
+            ),
+          ]),
+
+          // ── Radar / Brújula ────────────────────────────────────────────
+
+          _buildSection('Radar y Brújula', [
+            _buildColorTile(
+              'Color del radar / brújula',
+              WatchConfig.parseColor(_config.colorRadar),
+              _config.colorRadar,
+              (hex) => _updateConfig((c) => c.copyWith(colorRadar: hex)),
+            ),
+          ]),
+
+          // ── Indicador de Distancia ─────────────────────────────────────
+
+          _buildSection('Indicador de Distancia', [
+            Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                title: Text(
+                  'Colores por zona',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withValues(alpha: 0.75),
+                  ),
+                ),
+                iconColor: Colors.white38,
+                collapsedIconColor: Colors.white24,
+                children: [
+                  _buildColorTile(
+                    'Cerca  (< ${_config.distThresh1Km} km)',
+                    WatchConfig.parseColor(_config.colorDistanceNear),
+                    _config.colorDistanceNear,
+                    (hex) => _updateConfig((c) => c.copyWith(colorDistanceNear: hex)),
+                  ),
+                  _buildColorTile(
+                    'Provincia  (${_config.distThresh1Km}–${_config.distThresh2Km} km)',
+                    WatchConfig.parseColor(_config.colorDistanceProv),
+                    _config.colorDistanceProv,
+                    (hex) => _updateConfig((c) => c.copyWith(colorDistanceProv: hex)),
+                  ),
+                  _buildColorTile(
+                    'Lejos  (${_config.distThresh2Km}–${_config.distThresh3Km} km)',
+                    WatchConfig.parseColor(_config.colorDistanceFar),
+                    _config.colorDistanceFar,
+                    (hex) => _updateConfig((c) => c.copyWith(colorDistanceFar: hex)),
+                  ),
+                  _buildColorTile(
+                    'Muy lejos  (${_config.distThresh3Km}–${_config.distThresh4Km} km)',
+                    WatchConfig.parseColor(_config.colorDistanceVFar),
+                    _config.colorDistanceVFar,
+                    (hex) => _updateConfig((c) => c.copyWith(colorDistanceVFar: hex)),
+                  ),
+                  _buildColorTile(
+                    'Extremo  (> ${_config.distThresh4Km} km)',
+                    WatchConfig.parseColor(_config.colorDistanceExtr),
+                    _config.colorDistanceExtr,
+                    (hex) => _updateConfig((c) => c.copyWith(colorDistanceExtr: hex)),
+                  ),
+                ],
+              ),
+            ),
+            Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                title: Text(
+                  'Rangos de distancia (km)',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withValues(alpha: 0.75),
+                  ),
+                ),
+                iconColor: Colors.white38,
+                collapsedIconColor: Colors.white24,
+                children: [
+                  _buildSliderTile(
+                    'Límite Cerca / Provincia',
+                    '${_config.distThresh1Km} km',
+                    _config.distThresh1Km.toDouble(),
+                    1,
+                    (_config.distThresh2Km - 1).toDouble(),
+                    (v) => _updateConfig((c) => c.copyWith(distThresh1Km: v.round())),
+                    activeColor: WatchConfig.parseColor(_config.colorDistanceNear),
+                  ),
+                  _buildSliderTile(
+                    'Límite Provincia / Lejos',
+                    '${_config.distThresh2Km} km',
+                    _config.distThresh2Km.toDouble(),
+                    (_config.distThresh1Km + 1).toDouble(),
+                    (_config.distThresh3Km - 1).toDouble(),
+                    (v) => _updateConfig((c) => c.copyWith(distThresh2Km: v.round())),
+                    activeColor: WatchConfig.parseColor(_config.colorDistanceProv),
+                  ),
+                  _buildSliderTile(
+                    'Límite Lejos / Muy lejos',
+                    '${_config.distThresh3Km} km',
+                    _config.distThresh3Km.toDouble(),
+                    (_config.distThresh2Km + 1).toDouble(),
+                    (_config.distThresh4Km - 1).toDouble(),
+                    (v) => _updateConfig((c) => c.copyWith(distThresh3Km: v.round())),
+                    activeColor: WatchConfig.parseColor(_config.colorDistanceFar),
+                  ),
+                  _buildSliderTile(
+                    'Límite Muy lejos / Extremo',
+                    '${_config.distThresh4Km} km',
+                    _config.distThresh4Km.toDouble(),
+                    (_config.distThresh3Km + 1).toDouble(),
+                    (_config.distThreshMaxKm - 1).toDouble(),
+                    (v) => _updateConfig((c) => c.copyWith(distThresh4Km: v.round())),
+                    activeColor: WatchConfig.parseColor(_config.colorDistanceVFar),
+                  ),
+                  _buildSliderTile(
+                    'Distancia máxima',
+                    '${_config.distThreshMaxKm} km',
+                    _config.distThreshMaxKm.toDouble(),
+                    (_config.distThresh4Km + 1).toDouble(),
+                    2000,
+                    (v) => _updateConfig((c) => c.copyWith(distThreshMaxKm: v.round())),
+                    activeColor: WatchConfig.parseColor(_config.colorDistanceExtr),
+                  ),
+                ],
+              ),
+            ),
+            Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'LEDs por zona de distancia',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white.withValues(alpha: 0.75),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Total: ${_config.ledsDistanceNear + _config.ledsDistanceProv + _config.ledsDistanceFar + _config.ledsDistanceVFar + _config.ledsDistanceExtr} / 12',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: (_config.ledsDistanceNear + _config.ledsDistanceProv + _config.ledsDistanceFar + _config.ledsDistanceVFar + _config.ledsDistanceExtr) == 12 
+                          ? Colors.white54 
+                          : Colors.redAccent,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                iconColor: Colors.white38,
+                collapsedIconColor: Colors.white24,
+                children: [
+                  _buildLEDCountStepper(
+                    'Cerca',
+                    _config.ledsDistanceNear,
+                    0,
+                    math.max(0, 12 - (_config.ledsDistanceProv + _config.ledsDistanceFar + _config.ledsDistanceVFar + _config.ledsDistanceExtr)),
+                    (v) => _updateConfig((c) => c.copyWith(ledsDistanceNear: v)),
+                    activeColor: WatchConfig.parseColor(_config.colorDistanceNear),
+                  ),
+                  _buildLEDCountStepper(
+                    'Provincia',
+                    _config.ledsDistanceProv,
+                    0,
+                    math.max(0, 12 - (_config.ledsDistanceNear + _config.ledsDistanceFar + _config.ledsDistanceVFar + _config.ledsDistanceExtr)),
+                    (v) => _updateConfig((c) => c.copyWith(ledsDistanceProv: v)),
+                    activeColor: WatchConfig.parseColor(_config.colorDistanceProv),
+                  ),
+                  _buildLEDCountStepper(
+                    'Lejos',
+                    _config.ledsDistanceFar,
+                    0,
+                    math.max(0, 12 - (_config.ledsDistanceNear + _config.ledsDistanceProv + _config.ledsDistanceVFar + _config.ledsDistanceExtr)),
+                    (v) => _updateConfig((c) => c.copyWith(ledsDistanceFar: v)),
+                    activeColor: WatchConfig.parseColor(_config.colorDistanceFar),
+                  ),
+                  _buildLEDCountStepper(
+                    'Muy lejos',
+                    _config.ledsDistanceVFar,
+                    0,
+                    math.max(0, 12 - (_config.ledsDistanceNear + _config.ledsDistanceProv + _config.ledsDistanceFar + _config.ledsDistanceExtr)),
+                    (v) => _updateConfig((c) => c.copyWith(ledsDistanceVFar: v)),
+                    activeColor: WatchConfig.parseColor(_config.colorDistanceVFar),
+                  ),
+                  _buildLEDCountStepper(
+                    'Extremo',
+                    _config.ledsDistanceExtr,
+                    0,
+                    math.max(0, 12 - (_config.ledsDistanceNear + _config.ledsDistanceProv + _config.ledsDistanceFar + _config.ledsDistanceVFar)),
+                    (v) => _updateConfig((c) => c.copyWith(ledsDistanceExtr: v)),
+                    activeColor: WatchConfig.parseColor(_config.colorDistanceExtr),
+                  ),
+                  if ((_config.ledsDistanceNear + _config.ledsDistanceProv + _config.ledsDistanceFar + _config.ledsDistanceVFar + _config.ledsDistanceExtr) != 12)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Text(
+                        'Los LEDs deben sumar exactamente 12 para visualizarse correctamente.',
+                        style: TextStyle(color: Colors.redAccent, fontSize: 13),
+                      ),
+                    ),
+                ],
               ),
             ),
           ]),
@@ -701,186 +946,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ── Diálogos y Helpers ───────────────────────────────────────────────────
 
   void _showColorPicker(String title, String currentHexAarrggbb, ValueChanged<String> onSelected) {
-    String currentRgb = currentHexAarrggbb.length == 8 
-        ? currentHexAarrggbb.substring(2) 
-        : currentHexAarrggbb;
-        
-    final controller = TextEditingController(text: currentRgb);
-    Color previewColor = WatchConfig.parseColor('FF$currentRgb');
-    bool isValid = true;
-
-    final List<Map<String, dynamic>> presets = [
-      {'name': 'Ámbar', 'hex': 'FFB900'},
-      {'name': 'Cian', 'hex': '00CCFF'},
-      {'name': 'Menta', 'hex': '00CC88'},
-      {'name': 'Rosa', 'hex': 'FF6699'},
-      {'name': 'Azul', 'hex': '4488FF'},
-      {'name': 'Púrpura', 'hex': 'BB88FF'},
-      {'name': 'Blanco Cálido', 'hex': 'FFDCB4'},
-      {'name': 'Rojo Neon', 'hex': 'FF4444'},
-    ];
+    Color currentColor = WatchConfig.parseColor(currentHexAarrggbb);
 
     showDialog(
       context: context,
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            void updatePreview(String text) {
-              final cleaned = text.replaceAll('#', '').trim();
-              final regExp = RegExp(r'^[0-9a-fA-F]{6}$');
-              if (regExp.hasMatch(cleaned)) {
-                setStateDialog(() {
-                  previewColor = WatchConfig.parseColor('FF$cleaned');
-                  isValid = true;
-                });
-              } else {
-                setStateDialog(() {
-                  isValid = false;
-                });
-              }
-            }
+        Color pickerColor = currentColor;
 
-            return AlertDialog(
-              backgroundColor: const Color(0xFF1A1A2E),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: Text('Elegir Color para $title', style: const TextStyle(color: Colors.white)),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 64,
-                        height: 64,
-                        decoration: BoxDecoration(
-                          color: isValid ? previewColor : Colors.grey.shade800,
-                          shape: BoxShape.circle,
-                          boxShadow: isValid
-                              ? [
-                                  BoxShadow(
-                                    color: previewColor.withValues(alpha: 0.4),
-                                    blurRadius: 16,
-                                    spreadRadius: 2,
-                                  )
-                                ]
-                              : null,
-                          border: Border.all(
-                            color: Colors.white24,
-                            width: 2,
-                          ),
-                        ),
-                        child: !isValid
-                            ? const Icon(Icons.help_outline, color: Colors.white54, size: 32)
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    TextField(
-                      controller: controller,
-                      onChanged: updatePreview,
-                      style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Código Hexadecimal (RRGGBB)',
-                        labelStyle: const TextStyle(color: Colors.white60),
-                        prefixText: '# ',
-                        prefixStyle: const TextStyle(color: Colors.white54, fontSize: 16),
-                        errorText: isValid ? null : 'Código inválido (ej: FF5500)',
-                        enabledBorder: const OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white24),
-                        ),
-                        focusedBorder: const OutlineInputBorder(
-                          borderSide: BorderSide(color: Color(0xFF4488FF)),
-                        ),
-                        errorBorder: const OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.redAccent),
-                        ),
-                        focusedErrorBorder: const OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.redAccent),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'PRESETS RECOMENDADOS',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white38,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: presets.map((p) {
-                        final pHex = p['hex'] as String;
-                        final pColor = WatchConfig.parseColor('FF$pHex');
-                        return InkWell(
-                          onTap: () {
-                            controller.text = pHex;
-                            updatePreview(pHex);
-                          },
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.04),
-                              border: Border.all(
-                                color: controller.text.toUpperCase() == pHex
-                                    ? pColor
-                                    : Colors.white.withValues(alpha: 0.05),
-                                width: 1.5,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 12,
-                                  height: 12,
-                                  decoration: BoxDecoration(
-                                    color: pColor,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  p['name'] as String,
-                                  style: const TextStyle(fontSize: 11, color: Colors.white70),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1A1A2E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Elegir Color para $title', style: const TextStyle(color: Colors.white)),
+          content: SingleChildScrollView(
+            child: ColorPicker(
+              pickerColor: currentColor,
+              onColorChanged: (color) {
+                pickerColor = color;
+              },
+              colorPickerWidth: 300.0,
+              pickerAreaHeightPercent: 0.7,
+              enableAlpha: false,
+              displayThumbColor: true,
+              paletteType: PaletteType.hueWheel,
+              pickerAreaBorderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(2.0),
+                topRight: Radius.circular(2.0),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
-                ),
-                TextButton(
-                  onPressed: isValid
-                      ? () {
-                          final cleaned = controller.text.replaceAll('#', '').trim().toUpperCase();
-                          onSelected('FF$cleaned');
-                          Navigator.pop(ctx);
-                        }
-                      : null,
-                  child: const Text('Seleccionar', style: TextStyle(color: Color(0xFF4488FF))),
-                ),
-              ],
-            );
-          },
+              hexInputBar: true,
+              portraitOnly: true,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: () {
+                // Ensure full opacity by keeping alpha FF
+                String hex = pickerColor.value.toRadixString(16).toUpperCase().padLeft(8, '0');
+                onSelected('FF${hex.substring(2)}');
+                Navigator.pop(ctx);
+              },
+              child: const Text('Seleccionar', style: TextStyle(color: Color(0xFF4488FF))),
+            ),
+          ],
         );
       },
-    ).then((_) => controller.dispose());
+    );
   }
 
   Future<void> _changeUserRole(PartnerRepository repo) async {
@@ -1057,6 +1170,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
               max: max,
               onChanged: onChanged,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLEDCountStepper(
+    String label,
+    int value,
+    int min,
+    int max,
+    ValueChanged<int> onChanged, {
+    Color activeColor = const Color(0xFF4488FF),
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.white.withValues(alpha: 0.75),
+            ),
+          ),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.remove_circle_outline),
+                color: value > min ? activeColor : Colors.white24,
+                onPressed: value > min ? () => onChanged(value - 1) : null,
+              ),
+              SizedBox(
+                width: 24,
+                child: Text(
+                  value.toString(),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: activeColor,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline),
+                color: value < max ? activeColor : Colors.white24,
+                onPressed: value < max ? () => onChanged(value + 1) : null,
+              ),
+            ],
           ),
         ],
       ),

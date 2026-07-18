@@ -28,9 +28,13 @@ class LocationModel {
       accuracy: (json['accuracy'] as num?)?.toDouble() ?? 0,
       pollingMode: json['polling_mode'] as String? ?? 'NEAR',
       updatedAt: json['updated_at'] != null
-          ? DateTime.parse((json['updated_at'] as String).endsWith('Z') 
-              ? json['updated_at'] as String 
-              : '${json['updated_at']}Z') // Force UTC parsing if TZ is missing
+          ? () {
+              String dateStr = json['updated_at'] as String;
+              if (!dateStr.endsWith('Z') && !dateStr.contains('+') && !dateStr.contains(RegExp(r'-\d{2}:\d{2}'))) {
+                dateStr += 'Z';
+              }
+              return DateTime.parse(dateStr);
+            }()
           : DateTime.now(),
     );
   }

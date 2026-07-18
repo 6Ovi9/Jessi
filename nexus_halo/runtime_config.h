@@ -10,7 +10,7 @@
 // ============================================================================
 // This replaces the hardcoded #define colors when the user customizes via app.
 
-#define RUNTIME_CONFIG_MAGIC  0xCF7F  // "CF" = config (v7) — bumped: uint8_t→uint16_t for timeout fields
+#define RUNTIME_CONFIG_MAGIC  0xCF82  // "CF" = config (v10) — added distance zone LED counts
 #define RUNTIME_CONFIG_FILE   "config.dat"
 
 struct __attribute__((packed)) RuntimeConfig {
@@ -21,10 +21,13 @@ struct __attribute__((packed)) RuntimeConfig {
   uint32_t colorHoursDisc;
   uint32_t colorMinutesDisc;
   uint32_t colorSecondsDisc;
+  uint32_t colorHapticTx;
+  uint32_t colorHapticRx;
   
   // 16-bit fields
   uint16_t gyroThreshold;
   uint16_t doubleFlickWindow;
+  uint16_t tripleFlickWindowMs;
   
   // 8-bit/bool fields
   uint8_t  brightnessPercent;
@@ -34,6 +37,30 @@ struct __attribute__((packed)) RuntimeConfig {
   uint8_t  hapticPatternIndex;
   uint8_t  wakeThreshold;
   bool     logarithmicBrightness;
+
+  // Radar / compass color
+  uint32_t colorRadar;
+
+  // Distance gauge colors
+  uint32_t colorDistanceNear;
+  uint32_t colorDistanceProv;
+  uint32_t colorDistanceFar;
+  uint32_t colorDistanceVFar;
+  uint32_t colorDistanceExtr;
+
+  // Distance thresholds (km)
+  uint16_t distThresh1Km;
+  uint16_t distThresh2Km;
+  uint16_t distThresh3Km;
+  uint16_t distThresh4Km;
+  uint16_t distThreshMaxKm;
+
+  // LED counts per distance zone (Must sum to 12)
+  uint8_t ledsDistanceNear;
+  uint8_t ledsDistanceProv;
+  uint8_t ledsDistanceFar;
+  uint8_t ledsDistanceVFar;
+  uint8_t ledsDistanceExtr;
 };
 
 class RuntimeConfigManager {

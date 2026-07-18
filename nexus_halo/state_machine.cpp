@@ -187,6 +187,7 @@ const char* StateMachine::getStateName(State state) const {
     case STATE_OTA_MODE:             return "OTA_MODE";
     case STATE_ERROR_NO_GPS:         return "ERROR_NO_GPS";
     case STATE_CALIBRATION_MODE:     return "CALIBRATION_MODE";
+    case STATE_COMPASS_CALIBRATION:  return "COMPASS_CALIBRATION";
     case STATE_BATTERY_DEAD_DISPLAY: return "BATTERY_DEAD_DISPLAY";
     case STATE_LOW_BATTERY:          return "LOW_BATTERY";
     default:                         return "UNKNOWN";

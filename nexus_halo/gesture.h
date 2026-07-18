@@ -40,6 +40,8 @@ public:
   // Set double-flick timing window dynamically
   void setDoubleFlickWindow(uint16_t ms) { double_flick_window = ms; }
   
+  // Set triple-flick timing window dynamically
+  void setTripleFlickWindow(uint16_t ms) { triple_flick_window = ms; }
 
 private:
   // Gyro flick detection (NEW)
@@ -50,6 +52,7 @@ private:
   bool flick_reset;
   uint16_t gyro_threshold;
   uint16_t double_flick_window;
+  uint16_t triple_flick_window;
   uint8_t tear_debounce;
   
   // Gesture result

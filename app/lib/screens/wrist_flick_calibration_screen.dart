@@ -25,6 +25,7 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
     with SingleTickerProviderStateMixin {
   int _threshold = _kThresholdDefault;
   int _doubleFlickWindowMs = 800;
+  int _tripleFlickWindowMs = 800;
   bool _isDetected = false;
   Timer? _detectedTimer;
   int _totalDetections = 0;
@@ -42,6 +43,7 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
     final cfg = repo.config ?? WatchConfig.defaultFor(repo.myUserId);
     _threshold = cfg.gyroThreshold.clamp(_kThresholdMin, _kThresholdMax);
     _doubleFlickWindowMs = cfg.doubleFlickWindowMs.clamp(400, 1200);
+    _tripleFlickWindowMs = cfg.tripleFlickWindowMs.clamp(400, 1200);
 
     // Animación de flash al detectar el gesto
     _detectCtrl = AnimationController(
@@ -121,6 +123,34 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
     final repo = context.read<PartnerRepository>();
     final current = repo.config ?? WatchConfig.defaultFor(repo.myUserId);
     final cfg = current.copyWith(doubleFlickWindowMs: value);
+
+    try {
+      await repo.saveConfig(cfg);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error DB: $e'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    try {
+      await ble.writeConfig(cfg);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error BLE: $e'), backgroundColor: Colors.orange),
+      );
+    }
+  }
+
+  Future<void> _writeTripleFlickWindow(int value) async {
+    final ble = context.read<BleService>();
+    if (ble.connectionState != BleConnectionState.connected) return;
+    
+    final repo = context.read<PartnerRepository>();
+    final current = repo.config ?? WatchConfig.defaultFor(repo.myUserId);
+    final cfg = current.copyWith(tripleFlickWindowMs: value);
 
     try {
       await repo.saveConfig(cfg);
@@ -354,6 +384,88 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
                       onChangeEnd: connected
                           ? (v) async {
                               await _writeDoubleFlickWindow(v.round());
+                            }
+                          : null,
+                    ),
+                  ),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Rápido (Exigente)\n400 ms',
+                        style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.3),
+                            fontSize: 10,
+                            height: 1.4),
+                      ),
+                      Text(
+                        'Lento (Fácil)\n1200 ms',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.3),
+                            fontSize: 10,
+                            height: 1.4),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+
+                  // Cabecera del Slider del Timing del Triple Giro
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Ventana de triple giro',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00CC88).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFF00CC88).withValues(alpha: 0.3)),
+                        ),
+                        child: Text(
+                          '$_tripleFlickWindowMs ms',
+                          style: const TextStyle(
+                            color: Color(0xFF00FFCC),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: const Color(0xFF00CC88),
+                      inactiveTrackColor: Colors.white.withValues(alpha: 0.08),
+                      thumbColor: Colors.white,
+                      overlayColor: const Color(0xFF00CC88).withValues(alpha: 0.2),
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
+                      trackHeight: 5,
+                    ),
+                    child: Slider(
+                      value: _tripleFlickWindowMs.toDouble(),
+                      min: 400,
+                      max: 1200,
+                      divisions: 16,
+                      onChanged: connected
+                          ? (v) {
+                              setState(() => _tripleFlickWindowMs = v.round());
+                            }
+                          : null,
+                      onChangeEnd: connected
+                          ? (v) async {
+                              await _writeTripleFlickWindow(v.round());
                             }
                           : null,
                     ),

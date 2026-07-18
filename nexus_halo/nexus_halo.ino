@@ -15,7 +15,7 @@
   - Vibration motor via MOSFET (D9)
   - LED power MOSFET (D10)
 
-  Version: 2.2
+  Version: 2.5.0
   ============================================================================
 */
 
@@ -150,7 +150,7 @@ void setup() {
   while (!Serial && (millis() - t < 5000)) {
     delay(10);
   }
-  Serial.println("[SETUP] Nexus Halo Firmware v2.3.0");
+  Serial.println("[SETUP] Nexus Halo Firmware v2.5.0");
 
   // Turn off XIAO internal status LEDs (Active LOW) to prevent battery drain
   pinMode(LED_RED, OUTPUT);
@@ -343,12 +343,12 @@ void setup() {
 #endif
 
   if (ble_handler.beginOk()) {
-    char json_buf[256];
+    char json_buf[512];
     const RuntimeConfig& c = runtime_config.getConfig();
-    snprintf(json_buf, sizeof(json_buf), "{\"ct\":%d,\"st\":%d,\"chc\":\"%08X\",\"cmc\":\"%08X\",\"csc\":\"%08X\",\"chd\":\"%08X\",\"cmd\":\"%08X\",\"csd\":\"%08X\",\"br\":%d,\"lb\":%d,\"wt\":%d,\"gt\":%d,\"df\":%d,\"hp\":%d,\"lg\":%d}", 
+    snprintf(json_buf, sizeof(json_buf), "{\"ct\":%d,\"st\":%d,\"chc\":\"%08X\",\"cmc\":\"%08X\",\"csc\":\"%08X\",\"chd\":\"%08X\",\"cmd\":\"%08X\",\"csd\":\"%08X\",\"br\":%d,\"lb\":%d,\"wt\":%d,\"gt\":%d,\"df\":%d,\"hp\":%d,\"lg\":%d,\"tf\":%d,\"ctx\":\"%08X\",\"crx\":\"%08X\"}", 
       c.clockTimeoutS, c.sleepTimeoutS, (unsigned int)c.colorHoursConnected, (unsigned int)c.colorMinutesConnected, (unsigned int)c.colorSecondsConnected,
       (unsigned int)c.colorHoursDisc, (unsigned int)c.colorMinutesDisc, (unsigned int)c.colorSecondsDisc, c.brightnessPercent, c.lowBatteryThreshold,
-      c.wakeThreshold, c.gyroThreshold, c.doubleFlickWindow, c.hapticPatternIndex, c.logarithmicBrightness ? 1 : 0);
+      c.wakeThreshold, c.gyroThreshold, c.doubleFlickWindow, c.hapticPatternIndex, c.logarithmicBrightness ? 1 : 0, c.tripleFlickWindowMs, (unsigned int)c.colorHapticTx, (unsigned int)c.colorHapticRx);
     ble_handler.notifyConfig(json_buf);
   }
 
@@ -650,6 +650,8 @@ void loop() {
   gesture_detector.setThreshold(runtime_config.getConfig().gyroThreshold);
   gesture_detector.setDoubleFlickWindow(
       runtime_config.getConfig().doubleFlickWindow);
+  gesture_detector.setTripleFlickWindow(
+      runtime_config.getConfig().tripleFlickWindowMs);
   gesture_detector.update(now_ms);
 
   float ax = 0, ay = 0, az = 0;
@@ -661,8 +663,15 @@ void loop() {
   compass.update(ax, ay, az);
 
   // ========================================================================
-  // IMU STREAMING (10 Hz)
+  // IMU & COMPASS STREAMING (10 Hz)
   // ========================================================================
+  if (ble_handler.isCompassStreamRequested() && ble_connected) {
+    static uint32_t last_compass_stream_ms = 0;
+    if (now_ms - last_compass_stream_ms >= 100) {
+      last_compass_stream_ms = now_ms;
+      ble_handler.notifyCompassStream(compass.getHeading());
+    }
+  }
   if (ble_handler.isIMUStreamRequested() && lsm6ds3_connected) {
     static uint32_t last_imu_stream_ms = 0;
     if (now_ms - last_imu_stream_ms >= 100) {
@@ -1234,6 +1243,9 @@ void handleStateHapticTX(bool is_entry) {
     pulse_step = 0;
     step_timer = millis();
     ble_handler.notifyHapticTX();
+    if (runtime_config.getConfig().hapticPatternIndex != 1) {
+      haptic.playPattern(HAPTIC_PATTERN_TX);
+    }
   }
 
   if (runtime_config.getConfig().hapticPatternIndex == 1) { // 1 = only partner
@@ -1242,11 +1254,12 @@ void handleStateHapticTX(bool is_entry) {
 
   uint32_t now = millis();
   uint8_t brightness_pct = runtime_config.getConfig().brightnessPercent;
-  uint8_t base_brightness = (brightness_pct * 255) / 100;
+  uint8_t base_brightness = led_controller._brightnessFromPct(brightness_pct);
+  uint32_t color_tx = runtime_config.getConfig().colorHapticTx;
 
   switch (pulse_step) {
     case 0:
-      led_controller.fillWithBrightness(COLOR_HAPTIC_TX, base_brightness);
+      led_controller.fillWithBrightness(color_tx, base_brightness);
       step_timer = now;
       pulse_step = 1;
       break;
@@ -1260,7 +1273,7 @@ void handleStateHapticTX(bool is_entry) {
       break;
     case 2:
       if (now - step_timer >= 100) {
-        led_controller.fillWithBrightness(COLOR_HAPTIC_TX, base_brightness);
+        led_controller.fillWithBrightness(color_tx, base_brightness);
         step_timer = now;
         pulse_step = 3;
       }
@@ -1771,14 +1784,35 @@ void debugPrintStatus() {
 // ============================================================================
 
 void handleStateCompassCalibration(bool is_entry) {
-  if (is_entry) state_machine.resetTimer(15000);
-  if (!compass.isCalibrating() || state_machine.isTimerExpired()) {
-    state_machine.transitionTo(ble_handler.isConnected() ? STATE_CLOCK_CONNECTED : STATE_CLOCK_DISCONNECTED);
-    return;
+  static bool finishing = false;
+  static uint32_t finish_start_ms = 0;
+
+  if (is_entry) {
+    state_machine.resetTimer(15000);
+    finishing = false;
   }
-  // Chasing LED animation logic
-  led_controller.clear();
-  led_controller.setLEDBrightness((millis() / 100) % LED_COUNT, COLOR_INFO, 255);
-  led_controller.show();
+
+  if (!finishing) {
+    if (!compass.isCalibrating() || state_machine.isTimerExpired()) {
+      finishing = true;
+      finish_start_ms = millis();
+      haptic.playPattern(HAPTIC_PATTERN_TX);
+    } else {
+      // LEDs OFF during active rotation to avoid magnetic interference with LIS3MDL
+      led_controller.clear();
+      led_controller.show();
+    }
+  }
+
+  if (finishing) {
+    if (millis() - finish_start_ms < 1000) {
+      uint8_t pct = runtime_config.getConfig().brightnessPercent;
+      uint8_t b = (pct * 255) / 100;
+      led_controller.fillWithBrightness(COLOR_SUCCESS, b);
+      led_controller.show();
+    } else {
+      state_machine.transitionTo(ble_handler.isConnected() ? STATE_CLOCK_CONNECTED : STATE_CLOCK_DISCONNECTED);
+    }
+  }
 }
 

@@ -9,7 +9,7 @@
 
 #define PIN_LED_RING_DATA    D7    // SK6812 data (NeoPixel protocol)
 #define PIN_LED_POWER        D10   // MOSFET gate (HIGH = LEDs powered, LOW = sleep)
-#define PIN_BUTTON_TOUCH     D8    // TTP223 capacitive button
+#define PIN_BUTTON_TOUCH     D8    // TTP223 capacitive button (DEAD/UNUSABLE: PCB dielectric noise latches pin HIGH)
 #define PIN_MOTOR            D9    // MOSFET gate (HIGH = vibrate, LOW = off)
 #define PIN_COMPASS_SDA      D4    // LIS3MDL I2C (custom pins)
 #define PIN_COMPASS_SCL      D5    // LIS3MDL I2C
@@ -22,7 +22,7 @@
 #define LED_COUNT            12    // 12× SK6812 MINI-E (RGB, counter-clockwise layout)
 #define USE_NEOPIXEL_DMA     1     // Required to prevent BLE disconnections
 #define LED_BRIGHTNESS_MAX   255   // Max PWM value
-#define LED_CLOCK_BRIGHTNESS 30    // Default brightness % for CLOCK mode (will be applied as 0-255)
+#define LED_CLOCK_BRIGHTNESS 15    // Default brightness % for CLOCK mode (will be applied as 0-255)
 
 // LED positions (physical mapping)
 // LED 0 = 12h (top), LED 3 = 3h (right), LED 6 = 6h (bottom), LED 9 = 9h (left)
@@ -110,10 +110,10 @@ enum BLE_CHAR_ID {
 #define COMPASS_HEADING_ALPHA  0.8f // Increased to 0.8 for faster heading convergence
 
 // Hard-iron & soft-iron offsets (calibration)
-// Defaults; can be overwritten by app config
-#define COMPASS_HARD_IRON_X   0.0f
-#define COMPASS_HARD_IRON_Y   0.0f
-#define COMPASS_HARD_IRON_Z   0.0f
+// Defaults from 3-run calibration session on real hardware (avg)
+#define COMPASS_HARD_IRON_X   -100.68f
+#define COMPASS_HARD_IRON_Y    29.98f
+#define COMPASS_HARD_IRON_Z    0.0f
 #define COMPASS_SOFT_IRON_XX  1.0f
 #define COMPASS_SOFT_IRON_YY  1.0f
 #define COMPASS_SOFT_IRON_ZZ  1.0f
@@ -144,7 +144,7 @@ enum BLE_CHAR_ID {
 #define COLOR_SECONDS_DISC       0xFF2864FF   // Bright blue
 
 // RADAR & DISTANCE modes
-#define COLOR_RADAR              0xFFFFB900   // Warm amber
+#define COLOR_RADAR              0xFF0080FF   // Blue (compass/radar needle default; overrideable from app)
 #define COLOR_DISTANCE_NEAR      0xFF0080FF   // Blue (0-15km)
 #define COLOR_DISTANCE_PROVINCE  0xFF00CC44   // Green (15-50km)
 #define COLOR_DISTANCE_FAR       0xFFFFCC00   // Yellow (50-150km)
@@ -212,6 +212,7 @@ enum BLE_CHAR_ID {
 
 // Gyroscope double-flick timing window (ms)
 #define GESTURE_DOUBLE_FLICK_WINDOW_DEFAULT 1200 // 1200 ms (Increased from 800 for triple flick)
+#define GESTURE_TRIPLE_FLICK_WINDOW_DEFAULT 1200 // 1200 ms
 #define GESTURE_DOUBLE_FLICK_WINDOW_MIN     400  // 400 ms
 #define GESTURE_DOUBLE_FLICK_WINDOW_MAX     1500 // 1500 ms
 

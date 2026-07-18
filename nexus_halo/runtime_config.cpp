@@ -41,6 +41,8 @@ void RuntimeConfigManager::resetDefaults() {
   config.colorHoursDisc        = COLOR_HOURS_DISC;
   config.colorMinutesDisc      = COLOR_MINUTES_DISC;
   config.colorSecondsDisc      = COLOR_SECONDS_DISC;
+  config.colorHapticTx         = COLOR_HAPTIC_TX;
+  config.colorHapticRx         = COLOR_HAPTIC_RX;
   config.brightnessPercent     = LED_CLOCK_BRIGHTNESS;
   config.logarithmicBrightness = true;
   config.clockTimeoutS         = TIMER_CLOCK_TIMEOUT_MS / 1000;
@@ -50,6 +52,24 @@ void RuntimeConfigManager::resetDefaults() {
   config.wakeThreshold         = IMU_WAKE_UP_THS_DEFAULT;
   config.gyroThreshold         = GESTURE_GYRO_THS_DEFAULT;
   config.doubleFlickWindow     = GESTURE_DOUBLE_FLICK_WINDOW_DEFAULT;
+  config.tripleFlickWindowMs   = GESTURE_TRIPLE_FLICK_WINDOW_DEFAULT;
+  // Radar / distance colors & thresholds
+  config.colorRadar            = COLOR_RADAR;
+  config.colorDistanceNear     = COLOR_DISTANCE_NEAR;
+  config.colorDistanceProv     = COLOR_DISTANCE_PROVINCE;
+  config.colorDistanceFar      = COLOR_DISTANCE_FAR;
+  config.colorDistanceVFar     = COLOR_DISTANCE_VFAR;
+  config.colorDistanceExtr     = COLOR_DISTANCE_EXTREME;
+  config.distThresh1Km         = DISTANCE_THRESHOLD_1_KM;
+  config.distThresh2Km         = DISTANCE_THRESHOLD_2_KM;
+  config.distThresh3Km         = DISTANCE_THRESHOLD_3_KM;
+  config.distThresh4Km         = DISTANCE_THRESHOLD_4_KM;
+  config.distThreshMaxKm       = DISTANCE_THRESHOLD_MAX_KM;
+  config.ledsDistanceNear      = 3;
+  config.ledsDistanceProv      = 3;
+  config.ledsDistanceFar       = 2;
+  config.ledsDistanceVFar      = 2;
+  config.ledsDistanceExtr      = 2;
 }
 
 // ============================================================================
@@ -81,6 +101,12 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
   if (_findJsonString(json, "csd", buf, sizeof(buf))) {
     config.colorSecondsDisc = _parseHexColor(buf, strlen(buf));
   }
+  if (_findJsonString(json, "ctx", buf, sizeof(buf))) {
+    config.colorHapticTx = _parseHexColor(buf, strlen(buf));
+  }
+  if (_findJsonString(json, "crx", buf, sizeof(buf))) {
+    config.colorHapticRx = _parseHexColor(buf, strlen(buf));
+  }
   
   // Parse integers
   int ct = _findJsonInt(json, "ct", config.clockTimeoutS);
@@ -103,6 +129,9 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
   
   int df = _findJsonInt(json, "df", config.doubleFlickWindow);
   config.doubleFlickWindow = df < 0 ? 0 : (df > 65535 ? 65535 : df);
+
+  int tf = _findJsonInt(json, "tf", config.tripleFlickWindowMs);
+  config.tripleFlickWindowMs = tf < 0 ? 0 : (tf > 65535 ? 65535 : tf);
   
   int hp = _findJsonInt(json, "hp", config.hapticPatternIndex);
   config.hapticPatternIndex = hp < 0 ? 0 : (hp > 255 ? 255 : hp);
@@ -113,7 +142,73 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
   if (lg >= 0) {
     config.logarithmicBrightness = (lg != 0);
   }
-  
+
+  // ── Radar / distance colors ──────────────────────────────────────────────
+  if (_findJsonString(json, "cra", buf, sizeof(buf))) {
+    config.colorRadar = _parseHexColor(buf, strlen(buf));
+  }
+  if (_findJsonString(json, "cdn", buf, sizeof(buf))) {
+    config.colorDistanceNear = _parseHexColor(buf, strlen(buf));
+  }
+  if (_findJsonString(json, "cdp", buf, sizeof(buf))) {
+    config.colorDistanceProv = _parseHexColor(buf, strlen(buf));
+  }
+  if (_findJsonString(json, "cdf", buf, sizeof(buf))) {
+    config.colorDistanceFar = _parseHexColor(buf, strlen(buf));
+  }
+  if (_findJsonString(json, "cdv", buf, sizeof(buf))) {
+    config.colorDistanceVFar = _parseHexColor(buf, strlen(buf));
+  }
+  if (_findJsonString(json, "cde", buf, sizeof(buf))) {
+    config.colorDistanceExtr = _parseHexColor(buf, strlen(buf));
+  }
+
+  // ── Distance thresholds (km) ─────────────────────────────────────────────
+  int dt1 = _findJsonInt(json, "dt1", config.distThresh1Km);
+  config.distThresh1Km = (dt1 < 1) ? 1 : (dt1 > 9999 ? 9999 : dt1);
+
+  int dt2 = _findJsonInt(json, "dt2", config.distThresh2Km);
+  dt2 = (dt2 < 1) ? 1 : (dt2 > 9999 ? 9999 : dt2);
+  config.distThresh2Km = (dt2 > config.distThresh1Km) ? dt2 : config.distThresh1Km + 1;
+
+  int dt3 = _findJsonInt(json, "dt3", config.distThresh3Km);
+  dt3 = (dt3 < 1) ? 1 : (dt3 > 9999 ? 9999 : dt3);
+  config.distThresh3Km = (dt3 > config.distThresh2Km) ? dt3 : config.distThresh2Km + 1;
+
+  int dt4 = _findJsonInt(json, "dt4", config.distThresh4Km);
+  dt4 = (dt4 < 1) ? 1 : (dt4 > 9999 ? 9999 : dt4);
+  config.distThresh4Km = (dt4 > config.distThresh3Km) ? dt4 : config.distThresh3Km + 1;
+
+  int dtm = _findJsonInt(json, "dtm", config.distThreshMaxKm);
+  dtm = (dtm < 2) ? 2 : (dtm > 9999 ? 9999 : dtm);
+  config.distThreshMaxKm = (dtm > config.distThresh4Km) ? dtm : config.distThresh4Km + 1;
+
+  // ── Distance zone LED counts ─────────────────────────────────────────────
+  int ln = _findJsonInt(json, "ln", config.ledsDistanceNear);
+  config.ledsDistanceNear = (ln < 0) ? 0 : (ln > 12 ? 12 : ln);
+
+  int lp = _findJsonInt(json, "lp", config.ledsDistanceProv);
+  config.ledsDistanceProv = (lp < 0) ? 0 : (lp > 12 ? 12 : lp);
+
+  int lf = _findJsonInt(json, "lf", config.ledsDistanceFar);
+  config.ledsDistanceFar = (lf < 0) ? 0 : (lf > 12 ? 12 : lf);
+
+  int lv = _findJsonInt(json, "lv", config.ledsDistanceVFar);
+  config.ledsDistanceVFar = (lv < 0) ? 0 : (lv > 12 ? 12 : lv);
+
+  int le = _findJsonInt(json, "le", config.ledsDistanceExtr);
+  config.ledsDistanceExtr = (le < 0) ? 0 : (le > 12 ? 12 : le);
+
+  // Validate total is exactly 12. If not, fallback to 3-3-2-2-2 to prevent visual bugs.
+  int total_leds = config.ledsDistanceNear + config.ledsDistanceProv + config.ledsDistanceFar + config.ledsDistanceVFar + config.ledsDistanceExtr;
+  if (total_leds != LED_COUNT) {
+    config.ledsDistanceNear = 3;
+    config.ledsDistanceProv = 3;
+    config.ledsDistanceFar  = 2;
+    config.ledsDistanceVFar = 2;
+    config.ledsDistanceExtr = 2;
+  }
+
   saveToFlash();
   // Serial.println("[CONFIG] Updated from BLE JSON");
   return true;
@@ -182,12 +277,12 @@ bool RuntimeConfigManager::loadFromFlash() {
   }
   
   size_t fileSize = file.size();
-  if (fileSize == 0 || fileSize > 128) {
+  if (fileSize == 0 || fileSize > 256) {
     file.close();
     return false;
   }
   
-  uint8_t buf[128];
+  uint8_t buf[256]; // Increased from 128 to accommodate larger RuntimeConfig struct
   if (file.read(buf, fileSize) != fileSize) {
     file.close();
     return false;

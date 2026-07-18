@@ -61,11 +61,13 @@ public:
   bool getRadarModeRequested() const { return radar_mode_requested; }
   
   bool isIMUStreamRequested() const { return imu_stream_requested; }
+  bool isCompassStreamRequested() const { return compass_stream_requested; }
   
   // Calibration support
   void notifyCalibStatus(uint8_t samples_done, uint8_t total_samples);
   void notifyCalibThreshold(uint8_t threshold);
   void notifyIMUStream(uint16_t mg, uint16_t dps); // dps is a gyro magnitude, always ≥ 0
+  void notifyCompassStream(float heading);
   uint8_t getCalibThreshold() const { return calib_threshold; }
   
   // Config access (returns last JSON string received from app)
@@ -91,6 +93,7 @@ private:
   volatile uint16_t active_conn_handle;
   bool conn_param_requested;
   volatile bool imu_stream_requested;
+  volatile bool compass_stream_requested;
 
   // BLE state
   volatile bool ble_connected;
@@ -113,9 +116,10 @@ private:
   BLECharacteristic ota_char;
   BLECharacteristic time_sync_char;  // Write-only: app sends uint32 Unix timestamp + int32 tz offset, little-endian
   BLECharacteristic imu_stream_char;
+  BLECharacteristic compass_stream_char;
   
   // Config JSON buffer
-  char config_json_buf[256];
+  char config_json_buf[512]; // Increased from 256 to accommodate expanded JSON config (~344 bytes with new fields)
   
   // Last received values
   float last_bearing;

@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v2.5 Firmware / v1.4 App] - 2026-07-18
+
+### Added
+- **Configurable Distance Gauge LEDs**: Introduced the ability to define exactly how many LEDs correspond to each of the 5 distance zones (Near, Provincial, Far, Very Far, Extreme). This enforces a strict budget of exactly 12 LEDs.
+- **Piecewise Linear LED Fill**: Replaced the logarithmic logic with a piecewise linear logic for distance LED mapping, both on the watch firmware and in the app UI watch preview.
+- **Supabase Migration**: Added migration script `supabase_migration_leds.sql` to support the new distance zones.
+
+### Fixed
+- **Battery Measurement Bug**: Fixed a hardware bug where `VBAT_ENABLE` was never configured as an `OUTPUT` pin. This left the voltage divider floating, causing the ADC to saturate and the battery percentage to permanently display as 100%.
+- **Missing State Name Fallback**: Fixed an issue in the serial monitor where Compass Calibration mode would output `Transition to UNKNOWN` due to a missing switch case in `getStateName()`.
+- **Clock Desync Drift**: Fixed an overlapping clock hand issue at 12:00 by fixing a UUID collision in the `ble_service.dart` where the Time Sync characteristic was using the wrong UUID (`2a61` instead of `2a2b`).
+
+## [v2.4 Firmware / v1.3 App] - 2026-07-17
+
+### Added
+- **Diagnostic Compass Screen**: Real-time live compass stream visualization over BLE to diagnose magnetometer interference.
+- **Configurable Triple Flick Window**: Added `tripleFlickWindowMs` to both `WatchConfig` and the App to customize the timeout required for a Triple Flick haptic event.
+- **Haptic Testing**: Implemented concurrent execution in the "Probar Vibración" button. It now simultaneously sends the BLE command directly to the watch and the event to Supabase, hiding network latency.
+
+### Fixed
+- **Button Spamming**: Added debounce and loading state `_isHapticSending` to prevent database duplicate insertions and API rate limits.
+- **Calibration Animation Delay**: Switched the `handleStateCompassCalibration` in the firmware to use a non-blocking `millis()` based state machine instead of hard `delay()`. This prevents the Watchdog Timer from resetting the microcontroller during calibration feedback.
+- **Battery Sag (Brownout)**: Modified `animateHapticRX` and `handleStateHapticTX` to use the global configured brightness rather than 255 to prevent voltage drops causing device reboots.
+
 ## [v2.3 Firmware / v1.1 App] - 2026-07-06
 
 ### Added
