@@ -43,18 +43,21 @@ public:
   // Set triple-flick timing window dynamically
   void setTripleFlickWindow(uint16_t ms) { triple_flick_window = ms; }
 
+  // Instant motion detection query for live calibration
+  bool justFlicked();
+
 private:
   // Gyro flick detection (NEW)
   LSM6DS3* imu_ptr;
   uint32_t last_flick_ms;
-  uint32_t sequence_start_ms;
   uint8_t flick_count;
   bool flick_reset;
   uint16_t gyro_threshold;
   uint16_t double_flick_window;
   uint16_t triple_flick_window;
   uint8_t tear_debounce;
-  
+  bool just_flicked_flag;
+
   // Gesture result
   GestureType detected_gesture;
   bool gesture_reported;

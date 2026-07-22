@@ -74,7 +74,7 @@
 #define BLE_SERVICE_NAME             "Nexus Halo"
 #define BLE_DEVICE_NAME              "Nexus Halo"
 #define BLE_ADVERTISING_INTERVAL_MS  100     // Normal advertising interval in ms
-#define BLE_ADVERTISING_INTERVAL_MS_SLEEP 1600 // Slow advertising interval in ms during deep sleep to save power
+#define BLE_ADVERTISING_INTERVAL_MS_SLEEP 500 // Slower advertising in deep sleep while still keeping phone connect latency practical
 
 // Custom BLE service UUID (128-bit)
 // Format: 12345678-1234-5678-1234-56789ABCDEF0 (example)
@@ -134,9 +134,9 @@ enum BLE_CHAR_ID {
 // ============================================================================
 
 // CLOCK_CONNECTED (distinct defaults, aligned with the app config contract)
-#define COLOR_HOURS_CONNECTED    0xFFFFDCB4   // Warm white
-#define COLOR_MINUTES_CONNECTED  0xFFFFF5F0   // Neutral white
-#define COLOR_SECONDS_CONNECTED  0xFFC8DCFF   // Cool blue
+#define COLOR_HOURS_CONNECTED    0xFFFF3300   // Vibrant Coral Red/Orange
+#define COLOR_MINUTES_CONNECTED  0xFF00FFCC   // Vibrant Turquoise/Cyan
+#define COLOR_SECONDS_CONNECTED  0xFFFF00FF   // Vibrant Pink/Magenta
 
 // CLOCK_DISCONNECTED (distinct defaults, aligned with the app config contract)
 #define COLOR_HOURS_DISC         0xFF001478   // Deep navy
@@ -158,6 +158,9 @@ enum BLE_CHAR_ID {
 #define COLOR_INFO               0xFF00CCFF   // Cyan (info)
 #define COLOR_HAPTIC_TX          0xFF66CCFF   // Light Blue (haptic send)
 #define COLOR_HAPTIC_RX          0xFFFF6699   // Pink (haptic receive)
+#define COLOR_FLICK_FEEDBACK     0xFF00FFFF   // Bright Cyan (wrist flick feedback)
+#define BRIGHTNESS_FLICK_FEEDBACK 100         // 100%
+#define ENABLE_FLICK_FEEDBACK    true
 
 // ============================================================================
 // DISTANCE THRESHOLDS (for DISTANCE_MODE LED filling)

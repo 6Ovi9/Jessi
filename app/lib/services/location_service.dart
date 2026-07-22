@@ -1,25 +1,15 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'bearing_calculator.dart';
 
-/// Servicio de localización GPS con Dynamic Polling.
+/// Servicio de localización GPS UI Proxy.
 ///
-/// Gestiona la obtención de coordenadas GPS en background con
-/// intervalos dinámicos que escalan según la distancia a la pareja:
-///
-/// | Modo       | Condición                      | Intervalo |
-/// |------------|-------------------------------|-----------|
-/// | PRECISION  | <500m o RADAR activo          | 3s        |
-/// | NEAR       | <10km                         | 60s       |
-/// | FAR        | 10-50km                       | 3 min     |
-/// | REMOTE     | >50km                         | 5-10 min  |
-///
-/// **Impacto**: 95-99% menos tráfico que polling estático 3s.
+/// Recibe coordenadas GPS desde el Background Engine y notifica a la UI.
 class LocationService extends ChangeNotifier {
   // ── Estado ──────────────────────────────────────────────────────────────
 
@@ -27,11 +17,12 @@ class LocationService extends ChangeNotifier {
   Position? _currentPosition;
   Position? get currentPosition => _currentPosition;
 
-  /// Ubicación de la pareja (recibida de Supabase)
+  /// Ubicación de la pareja (recibida de Supabase o cache local)
   LatLng? _partnerLocation;
+  LatLng? get partnerLocation => _partnerLocation;
 
-  /// Modo de polling actual
-  GpsPollingMode _currentMode = GpsPollingMode.near; // Default seguro (nota 8)
+  /// Modo de polling actual (mantenido para la UI)
+  GpsPollingMode _currentMode = GpsPollingMode.near;
   GpsPollingMode get currentMode => _currentMode;
 
   /// ¿El reloj está en RADAR_MODE?
@@ -50,42 +41,22 @@ class LocationService extends ChangeNotifier {
   bool _isRunning = false;
   bool get isRunning => _isRunning;
 
-  /// Prevents concurrent GPS requests (Race Condition Fix)
-  bool _isUpdating = false;
-
   /// Contador de actualizaciones GPS (para estadísticas)
   int _updateCount = 0;
   int get updateCount => _updateCount;
 
-  // ── Timer de polling ───────────────────────────────────────────────────
-
-  Timer? _pollingTimer;
-
-  // ── Intervalos configurables ───────────────────────────────────────────
-
-  int _precisionIntervalS = 3;
-  int _nearIntervalS = 60;
-  int _farIntervalS = 180;
-  int _remoteMinIntervalS = 300;
-  int _remoteMaxIntervalS = 600;
-
   // ── Callbacks ──────────────────────────────────────────────────────────
 
   /// Callback cuando se obtiene una nueva posición GPS
-  /// Parámetros: (posición, bearing hacia pareja, distancia en metros)
   void Function(Position position, double bearing, int distanceM)? onLocationUpdate;
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
   /// Verificar y solicitar permisos de ubicación.
-  ///
-  /// En Android se intenta subir de `whileInUse` a `always` una sola vez para
-  /// permitir el uso del GPS en background con el foreground service.
   Future<bool> checkAndRequestPermissions() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      print('[GPS] Location services are disabled');
-      return false;
+      throw Exception('Los servicios de ubicación (GPS) están desactivados en los ajustes rápidos de tu teléfono.');
     }
 
     var permission = await Geolocator.checkPermission();
@@ -93,30 +64,26 @@ class LocationService extends ChangeNotifier {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        print('[GPS] Location permission denied');
-        return false;
+        throw Exception('El permiso de ubicación fue denegado por el usuario.');
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
-      print('[GPS] Location permission permanently denied');
-      return false;
+      throw Exception('El permiso de ubicación está denegado permanentemente. Actívalo en los ajustes de tu teléfono.');
     }
 
     if (shouldUpgradeToAlwaysPermission(isAndroid: Platform.isAndroid, permission: permission)) {
       await Geolocator.openAppSettings();
-      // After returning from settings, re-check the permission
       final upgraded = await Geolocator.checkPermission();
-      if (upgraded != LocationPermission.denied && upgraded != LocationPermission.deniedForever) {
-        permission = upgraded;
-      }
+      permission = upgraded;
     }
 
-    final hasRequiredPermission = permission == LocationPermission.always ||
-        permission == LocationPermission.whileInUse;
+    if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
+      print('[GPS Proxy] Location permission granted: $permission');
+      return true;
+    }
 
-    print('[GPS] Location permission granted: $permission');
-    return hasRequiredPermission;
+    throw Exception('Permiso de ubicación denegado.');
   }
 
   @visibleForTesting
@@ -127,17 +94,13 @@ class LocationService extends ChangeNotifier {
     return isAndroid && permission == LocationPermission.whileInUse;
   }
 
-  /// Iniciar el servicio de localización con dynamic polling.
-  ///
-  /// Arranca en modo NEAR (60s) como valor seguro por defecto,
-  /// hasta recibir la primera ubicación de la pareja para calcular
-  /// la distancia real. (Nota de implementación #8 de la spec)
+  /// Iniciar el servicio de localización en la UI (Proxy).
   Future<void> start() async {
     if (_isRunning) return;
 
     final hasPermission = await checkAndRequestPermissions();
     if (!hasPermission) {
-      print('[GPS] Cannot start: no permission');
+      print('[GPS Proxy] Cannot start: no permission');
       throw Exception('Los servicios de ubicación o los permisos de GPS están desactivados.');
     }
 
@@ -145,22 +108,14 @@ class LocationService extends ChangeNotifier {
     _currentMode = GpsPollingMode.near; // Default seguro
     notifyListeners();
 
-    print('[GPS] Service started in ${_currentMode.label} mode');
-
-    // Primera actualización inmediata
-    await _doGpsUpdate();
-
-    // Programar siguiente actualización
-    _scheduleNextUpdate();
+    print('[GPS Proxy] Service started (Listening to Background Engine)');
   }
 
   /// Detener el servicio de localización
   void stop() {
-    _pollingTimer?.cancel();
-    _pollingTimer = null;
     _isRunning = false;
     notifyListeners();
-    print('[GPS] Service stopped');
+    print('[GPS Proxy] Service stopped');
   }
 
   @override
@@ -169,13 +124,90 @@ class LocationService extends ChangeNotifier {
     super.dispose();
   }
 
+  // ── Actualizaciones desde Background Engine ────────────────────────────
+
+  /// Recibir actualización de posición desde el Background Engine
+  void updateCurrentLocation(double lat, double lng) {
+    _isRunning = true;
+    
+    _currentPosition = Position(
+      latitude: lat,
+      longitude: lng,
+      timestamp: DateTime.now(),
+      accuracy: 0.0,
+      altitude: 0.0,
+      altitudeAccuracy: 0.0,
+      heading: 0.0,
+      headingAccuracy: 0.0,
+      speed: 0.0,
+      speedAccuracy: 0.0,
+      isMocked: false,
+    );
+    _updateCount++;
+
+    if (_partnerLocation == null) {
+      SharedPreferences.getInstance().then((prefs) {
+        final latStr = prefs.getString('cached_partner_lat');
+        final lngStr = prefs.getString('cached_partner_lng');
+        if (latStr != null && lngStr != null) {
+          final pLat = double.tryParse(latStr);
+          final pLng = double.tryParse(lngStr);
+          if (pLat != null && pLng != null) {
+            _partnerLocation = LatLng(pLat, pLng);
+            if (_currentPosition != null) {
+              final myPos = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+              _distanceKm = BearingCalculator.calculateDistanceKm(myPos, _partnerLocation!);
+              if (_distanceKm >= 0.015) {
+                _bearingDeg = BearingCalculator.calculateBearing(myPos, _partnerLocation!);
+              }
+              onLocationUpdate?.call(
+                _currentPosition!,
+                _bearingDeg,
+                BearingCalculator.calculateDistanceMeters(myPos, _partnerLocation!),
+              );
+            }
+            notifyListeners();
+          }
+        }
+      }).catchError((_) {});
+    }
+
+    if (_partnerLocation != null) {
+      final myPos = LatLng(lat, lng);
+      _distanceKm = BearingCalculator.calculateDistanceKm(myPos, _partnerLocation!);
+      if (_distanceKm >= 0.015) {
+        _bearingDeg = BearingCalculator.calculateBearing(myPos, _partnerLocation!);
+      }
+
+      // Recalcular modo de polling
+      final newMode = BearingCalculator.getPollingMode(_distanceKm, _radarModeActive);
+      if (newMode != _currentMode) {
+        print('[GPS Proxy] Polling mode changed: ${_currentMode.label} → ${newMode.label}');
+        _currentMode = newMode;
+      }
+
+      onLocationUpdate?.call(
+        _currentPosition!,
+        _bearingDeg,
+        BearingCalculator.calculateDistanceMeters(myPos, _partnerLocation!),
+      );
+    } else {
+      onLocationUpdate?.call(_currentPosition!, 0, 0);
+    }
+
+    notifyListeners();
+
+    print('[GPS Proxy] Update #$_updateCount: Lat $lat, Lng $lng | Dist: ${_distanceKm.toStringAsFixed(3)}km | Brg: ${_bearingDeg.toStringAsFixed(1)}°');
+  }
+
   // ── Actualización de ubicación de la pareja ────────────────────────────
 
-  /// Actualizar la ubicación de la pareja (recibida de Supabase Realtime).
-  ///
-  /// Recalcula bearing y distancia, y ajusta el modo de polling GPS.
   void updatePartnerLocation(LatLng partnerLocation) {
     _partnerLocation = partnerLocation;
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString('cached_partner_lat', partnerLocation.latitude.toString());
+      prefs.setString('cached_partner_lng', partnerLocation.longitude.toString());
+    }).catchError((_) {});
 
     if (_currentPosition != null) {
       final myPos = LatLng(
@@ -184,7 +216,6 @@ class LocationService extends ChangeNotifier {
       );
 
       _distanceKm = BearingCalculator.calculateDistanceKm(myPos, partnerLocation);
-      // Solo recalcular el rumbo si la distancia es mayor o igual a 15 metros (0.015 km) para evitar oscilaciones erráticas
       if (_distanceKm >= 0.015) {
         _bearingDeg = BearingCalculator.calculateBearing(myPos, partnerLocation);
       }
@@ -192,41 +223,32 @@ class LocationService extends ChangeNotifier {
       // Recalcular modo de polling
       final newMode = BearingCalculator.getPollingMode(_distanceKm, _radarModeActive);
       if (newMode != _currentMode) {
-        print('[GPS] Polling mode changed: ${_currentMode.label} → ${newMode.label}');
+        print('[GPS Proxy] Polling mode changed: ${_currentMode.label} → ${newMode.label}');
         _currentMode = newMode;
-        _scheduleNextUpdate(); // Reprogramar con nuevo intervalo
       }
 
       notifyListeners();
     }
   }
 
-  /// Notificar que el reloj entró/salió de RADAR_MODE.
-  ///
-  /// Si entra en RADAR, fuerza modo PRECISION inmediatamente.
   Future<void> setRadarModeActive(bool active) async {
     if (_radarModeActive == active) return;
 
     _radarModeActive = active;
-    print('[GPS] Radar mode: ${active ? "ON → PRECISION" : "OFF"}');
+    print('[GPS Proxy] Radar mode: ${active ? "ON" : "OFF"}');
 
     if (active) {
-      // Forzar modo PRECISION y actualización inmediata
       _currentMode = GpsPollingMode.precision;
-      await _doGpsUpdate();
-      _scheduleNextUpdate();
     } else {
-      // Recalcular modo según distancia actual
       if (_distanceKm >= 0) {
         _currentMode = BearingCalculator.getPollingMode(_distanceKm, false);
-        _scheduleNextUpdate();
       }
     }
 
     notifyListeners();
   }
 
-  /// Configurar intervalos de polling personalizados
+  /// Configurar intervalos de polling personalizados (Dummy)
   void setPollingIntervals({
     int? precisionS,
     int? nearS,
@@ -234,101 +256,12 @@ class LocationService extends ChangeNotifier {
     int? remoteMinS,
     int? remoteMaxS,
   }) {
-    _precisionIntervalS = precisionS ?? _precisionIntervalS;
-    _nearIntervalS = nearS ?? _nearIntervalS;
-    _farIntervalS = farS ?? _farIntervalS;
-    _remoteMinIntervalS = remoteMinS ?? _remoteMinIntervalS;
-    _remoteMaxIntervalS = remoteMaxS ?? _remoteMaxIntervalS;
-  }
-
-  // ── Lógica interna ─────────────────────────────────────────────────────
-
-  /// Programar la siguiente actualización GPS según el modo actual
-  void _scheduleNextUpdate() {
-    _pollingTimer?.cancel();
-    if (!_isRunning) return;
-
-    final interval = BearingCalculator.getPollingInterval(
-      _currentMode,
-      precisionS: _precisionIntervalS,
-      nearS: _nearIntervalS,
-      farS: _farIntervalS,
-      remoteMinS: _remoteMinIntervalS,
-      remoteMaxS: _remoteMaxIntervalS,
-    );
-
-    _pollingTimer = Timer(interval, () async {
-      if (_isRunning) {
-        await _doGpsUpdate();
-        _scheduleNextUpdate(); // Reprogramar el siguiente ciclo
-      }
-    });
-
-    print('[GPS] Next update in ${interval.inSeconds}s (${_currentMode.label})');
-  }
-
-  /// Obtener posición GPS actual y notificar
-  Future<void> _doGpsUpdate() async {
-    if (_isUpdating) {
-      print('[GPS] Update already in progress. Skipping...');
-      return;
-    }
-    _isUpdating = true;
-
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: _currentMode == GpsPollingMode.precision
-            ? LocationAccuracy.bestForNavigation
-            : LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      );
-
-      _currentPosition = position;
-      if (!_isRunning) return;
-      _updateCount++;
-
-      // Recalcular bearing y distancia si tenemos ubicación de la pareja
-      if (_partnerLocation != null) {
-        final myPos = LatLng(position.latitude, position.longitude);
-        _distanceKm = BearingCalculator.calculateDistanceKm(myPos, _partnerLocation!);
-        // Solo recalcular el rumbo si la distancia es mayor o igual a 15 metros (0.015 km) para evitar oscilaciones erráticas
-        if (_distanceKm >= 0.015) {
-          _bearingDeg = BearingCalculator.calculateBearing(myPos, _partnerLocation!);
-        }
-
-        // Notificar con datos calculados
-        onLocationUpdate?.call(
-          position,
-          _bearingDeg,
-          BearingCalculator.calculateDistanceMeters(myPos, _partnerLocation!),
-        );
-      } else {
-        // Sin pareja conocida, solo notificar posición
-        onLocationUpdate?.call(position, 0, 0);
-      }
-
-      notifyListeners();
-
-      print('[GPS] Update #$_updateCount: '
-          'Lat ${position.latitude}, Lng ${position.longitude} '
-          '| Dist: ${_distanceKm.toStringAsFixed(3)}km | Brg: ${_bearingDeg.toStringAsFixed(1)}°');
-    } catch (e) {
-      print('[GPS] Error getting location: $e');
-    } finally {
-      _isUpdating = false;
-    }
-  }
-
-  /// Forzar una actualización GPS inmediata (útil para transiciones)
-  Future<void> forceUpdate() async {
-    if (_isRunning) {
-      await _doGpsUpdate();
-    }
+    // Los intervalos ahora son gestionados por BackgroundEngine.
+    // Este método se mantiene por compatibilidad con main.dart.
   }
 
   // ── Estadísticas ───────────────────────────────────────────────────────
 
-  /// Descripción legible del estado actual
   String get statusDescription {
     if (!_isRunning) return 'Detenido';
     if (_currentPosition == null) return 'Esperando GPS...';

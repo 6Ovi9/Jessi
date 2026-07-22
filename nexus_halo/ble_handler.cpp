@@ -194,8 +194,9 @@ void BLEHandler::begin() {
 
   // Setup advertising
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
-  Bluefruit.Advertising.addTxPower();
   Bluefruit.Advertising.addService(service);
+  Bluefruit.Advertising.addName();
+  Bluefruit.Advertising.addTxPower();
   Bluefruit.ScanResponse.addName();
   
   Bluefruit.Advertising.restartOnDisconnect(true);
@@ -207,14 +208,7 @@ void BLEHandler::begin() {
 }
 
 void BLEHandler::update() {
-  if (ble_connected && !conn_param_requested && (millis() - conn_timestamp >= 500)) {
-    conn_param_requested = true;
-    BLEConnection* conn = Bluefruit.Connection(active_conn_handle);
-    if (conn) {
-      // 84 * 1.25ms = 105ms (multiple of 15ms). Args: interval, latency, timeout
-      conn->requestConnectionParameter(84, 0, 400); 
-    }
-  }
+  // Let the central (Android) negotiate connection parameters naturally.
 }
 
 void BLEHandler::setLowPowerAdvertising(bool enabled) {
@@ -262,7 +256,12 @@ void BLEHandler::_onConnect(uint16_t conn_handle) {
 }
 
 void BLEHandler::_onDisconnect(uint16_t conn_handle, uint8_t reason) {
+  Serial.print("[BLE] Disconnected. handle=");
+  Serial.print(conn_handle);
+  Serial.print(" reason=0x");
+  Serial.println(reason, HEX);
   ble_connected = false;
+  active_conn_handle = BLE_CONN_HANDLE_INVALID;
   // Reset streaming flag so reconnect starts clean (BUG-1 fix)
   imu_stream_requested = false;
   compass_stream_requested = false;
@@ -398,14 +397,16 @@ const char* BLEHandler::getConfigJson() const {
 }
 
 void BLEHandler::notifyConfig(const char* json) {
-  if (!ble_init_ok) return;
-  if (!json) return;
+  if (!ble_init_ok || !json) return;
   uint16_t len = strlen(json);
-  if (len > sizeof(config_json_buf) - 1) len = sizeof(config_json_buf) - 1;
-  memcpy(config_json_buf, json, len);
-  config_json_buf[len] = '\0';
-  config_char.write(config_json_buf, len);
+  if (xSemaphoreTake(json_mutex, portMAX_DELAY)) {
+    if (len > sizeof(config_json_buf) - 1) len = sizeof(config_json_buf) - 1;
+    memcpy(config_json_buf, json, len);
+    config_json_buf[len] = '\0';
+    xSemaphoreGive(json_mutex);
+  }
+  config_char.write(json, len);
   if (ble_connected) {
-    config_char.notify(config_json_buf, len);
+    config_char.notify(json, len);
   }
 }

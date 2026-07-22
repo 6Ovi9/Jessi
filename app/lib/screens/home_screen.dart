@@ -1,8 +1,8 @@
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/config_model.dart';
 import '../repositories/partner_repository.dart';
@@ -130,6 +130,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildHeader(BuildContext context, BleService bleService) {
+    final syncService = context.watch<SyncService>();
     final isConnected =
         bleService.connectionState == BleConnectionState.connected;
 
@@ -184,6 +185,32 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       fontWeight: FontWeight.w500,
                     ),
                   ),
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: syncService.isTailscaleConnected
+                          ? Colors.blueAccent.withValues(alpha: 0.15)
+                          : Colors.orange.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: syncService.isTailscaleConnected
+                            ? Colors.blueAccent.withValues(alpha: 0.4)
+                            : Colors.orange.withValues(alpha: 0.4),
+                        width: 0.5,
+                      ),
+                    ),
+                    child: Text(
+                      syncService.isTailscaleConnected ? 'Tailscale' : 'Offline',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: syncService.isTailscaleConnected
+                            ? Colors.blueAccent
+                            : Colors.orangeAccent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                   if (isConnected && bleService.batteryPercent >= 0) ...[
                     const SizedBox(width: 12),
                     Icon(
@@ -209,24 +236,49 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           // Acciones
           Row(
             children: [
-              // Botón de actualizar
+              // Botón de actualizar (Full Sync)
               IconButton(
                 onPressed: () async {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Actualizando ubicación...')),
+                    const SnackBar(content: Text('Sincronizando estado completo...')),
                   );
                   final sync = context.read<SyncService>();
                   final loc = context.read<LocationService>();
+                  final ble = context.read<BleService>();
+                  final repo = context.read<PartnerRepository>();
+
                   try {
+                    await sync.checkTailscaleConnection();
+                    await sync.checkConnection();
+
                     final partnerLoc = await sync.fetchPartnerLocation();
                     if (partnerLoc != null && partnerLoc.isValid) {
                       loc.updatePartnerLocation(
                         LatLng(partnerLoc.latitude, partnerLoc.longitude),
                       );
                     }
-                    await loc.forceUpdate();
+
+                    await repo.loadConfig();
+
+                    if (loc.currentPosition != null && loc.partnerLocation != null) {
+                      ble.writeBearing(loc.bearingDeg);
+                      ble.writeDistance((loc.distanceKm * 1000).round());
+                    }
+
+                    if (ble.connectionState == BleConnectionState.connected) {
+                      ble.syncTime();
+                    }
+
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Sincronización completada'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
                   } catch (e) {
-                    debugPrint('Error en refresh: $e');
+                    debugPrint('Error en full refresh: $e');
                   }
                 },
                 icon: Icon(
@@ -249,9 +301,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   color: Colors.white.withValues(alpha: 0.7),
                 ),
               ),
-              // Botón de emparejamiento
+              // Botón de reconexión rápida / emparejamiento
               IconButton(
-                onPressed: () {
+                onPressed: () async {
+                  if (!isConnected) {
+                    final prefs = await SharedPreferences.getInstance();
+                    final savedMac = prefs.getString('ble_mac_address');
+                    if (savedMac != null && savedMac.isNotEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Reconectando al reloj...')),
+                      );
+                      bleService.connectToDevice(savedMac);
+                      return;
+                    }
+                  }
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -260,11 +323,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   );
                 },
                 icon: Icon(
-                  Icons.bluetooth_searching_rounded,
+                  isConnected ? Icons.bluetooth_connected_rounded : Icons.bluetooth_searching_rounded,
                   color: isConnected
                       ? const Color(0xFF4488FF)
-                      : Colors.white.withValues(alpha: 0.5),
+                      : const Color(0xFFFF8844),
                 ),
+                tooltip: isConnected ? 'Emparejar reloj' : 'Reconectar reloj',
               ),
             ],
           ),

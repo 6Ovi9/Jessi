@@ -76,13 +76,15 @@ class WatchConfig {
   final int ledsDistanceVFar;
   final int ledsDistanceExtr;
 
+  final int updatedAt;
+
   const WatchConfig({
     required this.userId,
     this.clockTimeoutS = 5,
     this.sleepTimeoutS = 5,
-    this.colorHoursConnected = 'FFFFDCB4',
-    this.colorMinutesConnected = 'FFFFF5F0',
-    this.colorSecondsConnected = 'FFC8DCFF',
+    this.colorHoursConnected = 'FFFF3300',
+    this.colorMinutesConnected = 'FF00FFCC',
+    this.colorSecondsConnected = 'FFFF00FF',
     this.colorHoursDisc = 'FF001478',
     this.colorMinutesDisc = 'FF003CC8',
     this.colorSecondsDisc = 'FF2864FF',
@@ -119,76 +121,64 @@ class WatchConfig {
     this.ledsDistanceFar = 2,
     this.ledsDistanceVFar = 2,
     this.ledsDistanceExtr = 2,
+    this.updatedAt = 0,
   });
 
-  /// Crear config por defecto para un usuario
+  /// Crear una configuración por defecto para un usuario específico.
   factory WatchConfig.defaultFor(String userId) {
     return WatchConfig(userId: userId);
   }
 
-  static String _normalizeHapticPattern(String? rawValue) {
-    final normalized = rawValue?.trim().toLowerCase();
-    switch (normalized) {
-      case 'partner':
-      case '1':
-        return 'partner';
-      case 'both':
-      case 'default':
-      case 'all':
-      case '0':
-      case null:
-      case '':
-      default:
-        return 'both';
-    }
-  }
-
-  /// Crear desde JSON de Supabase
+  /// Crear desde JSON (Supabase DB o BLE)
   factory WatchConfig.fromJson(Map<String, dynamic> json) {
     return WatchConfig(
-      userId: json['user_id'] as String,
-      clockTimeoutS: (json['clock_timeout_s'] as num?)?.toInt() ?? 5,
-      sleepTimeoutS: (json['sleep_timeout_s'] as num?)?.toInt() ?? 5,
-      colorHoursConnected: json['color_hours_connected'] as String? ?? 'FFFFDCB4',
-      colorMinutesConnected: json['color_minutes_connected'] as String? ?? 'FFFFF5F0',
-      colorSecondsConnected: json['color_seconds_connected'] as String? ?? 'FFC8DCFF',
-      colorHoursDisc: json['color_hours_disc'] as String? ?? 'FF001478',
-      colorMinutesDisc: json['color_minutes_disc'] as String? ?? 'FF003CC8',
-      colorSecondsDisc: json['color_seconds_disc'] as String? ?? 'FF2864FF',
-      brightnessPercent: (json['brightness_percent'] as num?)?.toInt() ?? 60,
-      lowBatteryThreshold: (json['low_battery_threshold'] as num?)?.toInt() ?? 15,
-      logarithmicBrightness: json['logarithmic_brightness'] as bool? ?? true,
-      hapticPattern: _normalizeHapticPattern(json['haptic_pattern'] as String?),
-      colorHapticTx: json['color_haptic_tx'] as String? ?? 'FF66CCFF',
-      colorHapticRx: json['color_haptic_rx'] as String? ?? 'FFFF6699',
-      brightnessHapticTx: (json['brightness_haptic_tx'] as num?)?.toInt() ?? 100,
-      brightnessHapticRx: (json['brightness_haptic_rx'] as num?)?.toInt() ?? 100,
-
+      userId: json['user_id'] as String? ?? '',
+      clockTimeoutS: (json['clock_timeout_s'] as num?)?.toInt() ?? (json['ct'] as num?)?.toInt() ?? 5,
+      sleepTimeoutS: (json['sleep_timeout_s'] as num?)?.toInt() ?? (json['st'] as num?)?.toInt() ?? 5,
+      colorHoursConnected: json['color_hours_connected'] as String? ?? json['chc'] as String? ?? 'FFFF3300',
+      colorMinutesConnected: json['color_minutes_connected'] as String? ?? json['cmc'] as String? ?? 'FF00FFCC',
+      colorSecondsConnected: json['color_seconds_connected'] as String? ?? json['csc'] as String? ?? 'FFFF00FF',
+      colorHoursDisc: json['color_hours_disc'] as String? ?? json['chd'] as String? ?? 'FF001478',
+      colorMinutesDisc: json['color_minutes_disc'] as String? ?? json['cmd'] as String? ?? 'FF003CC8',
+      colorSecondsDisc: json['color_seconds_disc'] as String? ?? json['csd'] as String? ?? 'FF2864FF',
+      brightnessPercent: (json['brightness_percent'] as num?)?.toInt() ?? (json['br'] as num?)?.toInt() ?? 15,
+      lowBatteryThreshold: (json['low_battery_threshold'] as num?)?.toInt() ?? (json['lb'] as num?)?.toInt() ?? 15,
+      logarithmicBrightness: json['logarithmic_brightness'] as bool? ?? (json['lg'] == 1 || json['lg'] == true),
+      hapticPattern: json['haptic_pattern'] as String? ?? (json['hp'] == 1 ? 'partner' : 'both'),
+      colorHapticTx: json['color_haptic_tx'] as String? ?? json['ctx'] as String? ?? 'FF66CCFF',
+      colorHapticRx: json['color_haptic_rx'] as String? ?? json['crx'] as String? ?? 'FFFF6699',
+      brightnessHapticTx: (json['brightness_haptic_tx'] as num?)?.toInt() ?? (json['btx'] as num?)?.toInt() ?? 100,
+      brightnessHapticRx: (json['brightness_haptic_rx'] as num?)?.toInt() ?? (json['brx'] as num?)?.toInt() ?? 100,
       gpsIntervalPrecisionS: (json['gps_interval_precision_s'] as num?)?.toInt() ?? 3,
       gpsIntervalNearS: (json['gps_interval_near_s'] as num?)?.toInt() ?? 60,
       gpsIntervalFarS: (json['gps_interval_far_s'] as num?)?.toInt() ?? 180,
       gpsIntervalRemoteMinS: (json['gps_interval_remote_min_s'] as num?)?.toInt() ?? 300,
       gpsIntervalRemoteMaxS: (json['gps_interval_remote_max_s'] as num?)?.toInt() ?? 600,
-      wakeThreshold: (json['wake_threshold'] as num?)?.toInt() ?? 2,
-      gyroThreshold: (json['gyro_threshold'] as num?)?.toInt() ?? 260,
-      doubleFlickWindowMs: (json['double_flick_window_ms'] as num?)?.toInt() ?? 800,
-      tripleFlickWindowMs: (json['triple_flick_window_ms'] as num?)?.toInt() ?? 1200,
-      colorRadar: json['color_radar'] as String? ?? 'FF0080FF',
-      colorDistanceNear: json['color_distance_near'] as String? ?? 'FF0080FF',
-      colorDistanceProv: json['color_distance_prov'] as String? ?? 'FF00CC44',
-      colorDistanceFar: json['color_distance_far'] as String? ?? 'FFFFCC00',
-      colorDistanceVFar: json['color_distance_vfar'] as String? ?? 'FFFF6600',
-      colorDistanceExtr: json['color_distance_extr'] as String? ?? 'FFFF0000',
-      distThresh1Km: (json['dist_thresh_1_km'] as num?)?.toInt() ?? 15,
-      distThresh2Km: (json['dist_thresh_2_km'] as num?)?.toInt() ?? 50,
-      distThresh3Km: (json['dist_thresh_3_km'] as num?)?.toInt() ?? 150,
-      distThresh4Km: (json['dist_thresh_4_km'] as num?)?.toInt() ?? 350,
-      distThreshMaxKm: (json['dist_thresh_max_km'] as num?)?.toInt() ?? 500,
-      ledsDistanceNear: (json['leds_distance_near'] as num?)?.toInt() ?? 3,
-      ledsDistanceProv: (json['leds_distance_prov'] as num?)?.toInt() ?? 3,
-      ledsDistanceFar: (json['leds_distance_far'] as num?)?.toInt() ?? 2,
-      ledsDistanceVFar: (json['leds_distance_vfar'] as num?)?.toInt() ?? 2,
-      ledsDistanceExtr: (json['leds_distance_extr'] as num?)?.toInt() ?? 2,
+      wakeThreshold: (json['wake_threshold'] as num?)?.toInt() ?? (json['wt'] as num?)?.toInt() ?? 2,
+      gyroThreshold: (json['gyro_threshold'] as num?)?.toInt() ?? (json['gt'] as num?)?.toInt() ?? 260,
+      doubleFlickWindowMs: (json['double_flick_window_ms'] as num?)?.toInt() ?? (json['df'] as num?)?.toInt() ?? 800,
+      tripleFlickWindowMs: (json['triple_flick_window_ms'] as num?)?.toInt() ?? (json['tf'] as num?)?.toInt() ?? 1200,
+      colorRadar: json['color_radar'] as String? ?? json['cra'] as String? ?? 'FF0080FF',
+      colorDistanceNear: json['color_distance_near'] as String? ?? json['cdn'] as String? ?? 'FF0080FF',
+      colorDistanceProv: json['color_distance_prov'] as String? ?? json['cdp'] as String? ?? 'FF00CC44',
+      colorDistanceFar: json['color_distance_far'] as String? ?? json['cdf'] as String? ?? 'FFFFCC00',
+      colorDistanceVFar: json['color_distance_vfar'] as String? ?? json['cdv'] as String? ?? 'FFFF6600',
+      colorDistanceExtr: json['color_distance_extr'] as String? ?? json['cde'] as String? ?? 'FFFF0000',
+      distThresh1Km: (json['dist_thresh_1_km'] as num?)?.toInt() ?? (json['dt1'] as num?)?.toInt() ?? 15,
+      distThresh2Km: (json['dist_thresh_2_km'] as num?)?.toInt() ?? (json['dt2'] as num?)?.toInt() ?? 50,
+      distThresh3Km: (json['dist_thresh_3_km'] as num?)?.toInt() ?? (json['dt3'] as num?)?.toInt() ?? 150,
+      distThresh4Km: (json['dist_thresh_4_km'] as num?)?.toInt() ?? (json['dt4'] as num?)?.toInt() ?? 350,
+      distThreshMaxKm: (json['dist_thresh_max_km'] as num?)?.toInt() ?? (json['dtm'] as num?)?.toInt() ?? 500,
+      ledsDistanceNear: (json['leds_distance_near'] as num?)?.toInt() ?? (json['ln'] as num?)?.toInt() ?? 3,
+      ledsDistanceProv: (json['leds_distance_prov'] as num?)?.toInt() ?? (json['lp'] as num?)?.toInt() ?? 3,
+      ledsDistanceFar: (json['leds_distance_far'] as num?)?.toInt() ?? (json['lf'] as num?)?.toInt() ?? 2,
+      ledsDistanceVFar: (json['leds_distance_vfar'] as num?)?.toInt() ?? (json['lv'] as num?)?.toInt() ?? 2,
+      ledsDistanceExtr: (json['leds_distance_extr'] as num?)?.toInt() ?? (json['le'] as num?)?.toInt() ?? 2,
+      updatedAt: json['updated_at'] != null
+          ? (json['updated_at'] is num
+              ? (json['updated_at'] as num).toInt()
+              : (DateTime.tryParse(json['updated_at'].toString())?.millisecondsSinceEpoch ?? 0))
+          : ((json['updatedAt'] as num?)?.toInt() ?? 0),
     );
   }
 
@@ -196,6 +186,9 @@ class WatchConfig {
   Map<String, dynamic> toJson() {
     return {
       'user_id': userId,
+      'updated_at': updatedAt == 0
+          ? DateTime.now().toIso8601String()
+          : DateTime.fromMillisecondsSinceEpoch(updatedAt).toIso8601String(),
       'clock_timeout_s': clockTimeoutS,
       'sleep_timeout_s': sleepTimeoutS,
       'color_hours_connected': colorHoursConnected,
@@ -283,11 +276,12 @@ class WatchConfig {
     };
   }
 
-  /// Parsear un color hex AARRGGBB a Color de Flutter
+  /// Convierte una cadena Hex (AARRGGBB, RRGGBB o #RRGGBB) a [Color]
   static Color parseColor(String hexColor) {
-    String hex = hexColor.trim().replaceAll('#', '');
-    if (hex.length == 6) hex = 'FF$hex'; // Assume opaque if no alpha
-    
+    var hex = hexColor.replaceAll('#', '').trim();
+    if (hex.length == 6) {
+      hex = 'FF$hex'; // Añadir alfa 100% si no viene especificado
+    }
     if (hex.length == 8) {
       final val = int.tryParse(hex, radix: 16);
       if (val != null) {
@@ -348,6 +342,7 @@ class WatchConfig {
     int? ledsDistanceFar,
     int? ledsDistanceVFar,
     int? ledsDistanceExtr,
+    int? updatedAt,
   }) {
     return WatchConfig(
       userId: userId ?? this.userId,
@@ -392,6 +387,7 @@ class WatchConfig {
       ledsDistanceFar: ledsDistanceFar ?? this.ledsDistanceFar,
       ledsDistanceVFar: ledsDistanceVFar ?? this.ledsDistanceVFar,
       ledsDistanceExtr: ledsDistanceExtr ?? this.ledsDistanceExtr,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 }

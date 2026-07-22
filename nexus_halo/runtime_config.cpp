@@ -27,6 +27,8 @@ void RuntimeConfigManager::begin() {
   Serial.print("  - colorMinutesDisc: 0x"); Serial.println(config.colorMinutesDisc, HEX);
   Serial.print("  - colorSecondsDisc: 0x"); Serial.println(config.colorSecondsDisc, HEX);
   Serial.print("  - brightnessPercent: "); Serial.print(config.brightnessPercent); Serial.println("%");
+  Serial.print("  - brightnessHapticTx: "); Serial.print(config.brightnessHapticTx); Serial.println("%");
+  Serial.print("  - brightnessHapticRx: "); Serial.print(config.brightnessHapticRx); Serial.println("%");
   Serial.print("  - logarithmicBrightness: "); Serial.println(config.logarithmicBrightness);
   Serial.print("  - wakeThreshold: "); Serial.println(config.wakeThreshold);
   Serial.print("  - doubleFlickWindow: "); Serial.print(config.doubleFlickWindow); Serial.println(" ms");
@@ -44,6 +46,8 @@ void RuntimeConfigManager::resetDefaults() {
   config.colorHapticTx         = COLOR_HAPTIC_TX;
   config.colorHapticRx         = COLOR_HAPTIC_RX;
   config.brightnessPercent     = LED_CLOCK_BRIGHTNESS;
+  config.brightnessHapticTx    = 100;
+  config.brightnessHapticRx    = 100;
   config.logarithmicBrightness = true;
   config.clockTimeoutS         = TIMER_CLOCK_TIMEOUT_MS / 1000;
   config.sleepTimeoutS         = TIMER_RADAR_TIMEOUT_MS / 1000;
@@ -70,6 +74,9 @@ void RuntimeConfigManager::resetDefaults() {
   config.ledsDistanceFar       = 2;
   config.ledsDistanceVFar      = 2;
   config.ledsDistanceExtr      = 2;
+  config.colorFlickFeedback     = COLOR_FLICK_FEEDBACK;
+  config.brightnessFlickFeedback= BRIGHTNESS_FLICK_FEEDBACK;
+  config.enableFlickFeedback    = ENABLE_FLICK_FEEDBACK;
 }
 
 // ============================================================================
@@ -117,6 +124,12 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
   
   int br = _findJsonInt(json, "br", config.brightnessPercent);
   config.brightnessPercent = br < 0 ? 0 : (br > 100 ? 100 : br);
+  
+  int btx = _findJsonInt(json, "btx", config.brightnessHapticTx);
+  config.brightnessHapticTx = btx < 0 ? 0 : (btx > 100 ? 100 : btx);
+  
+  int brx = _findJsonInt(json, "brx", config.brightnessHapticRx);
+  config.brightnessHapticRx = brx < 0 ? 0 : (brx > 100 ? 100 : brx);
   
   int lb = _findJsonInt(json, "lb", config.lowBatteryThreshold);
   config.lowBatteryThreshold = lb < 0 ? 0 : (lb > 100 ? 100 : lb);
@@ -209,7 +222,20 @@ bool RuntimeConfigManager::updateFromJson(const char* json) {
     config.ledsDistanceExtr = 2;
   }
 
-  saveToFlash();
+  // ── Flick Feedback Customization ─────────────────────────────────────────
+  if (_findJsonString(json, "cff", buf, sizeof(buf))) {
+    config.colorFlickFeedback = _parseHexColor(buf, strlen(buf));
+  }
+  int bff = _findJsonInt(json, "bff", config.brightnessFlickFeedback);
+  config.brightnessFlickFeedback = bff < 10 ? 10 : (bff > 100 ? 100 : bff);
+
+  int eff = _findJsonInt(json, "eff", -1);
+  if (eff >= 0) {
+    config.enableFlickFeedback = (eff != 0);
+  }
+
+  // Deferred saveToFlash() managed by config_save_pending in nexus_halo.ino loop
+  // saveToFlash();
   // Serial.println("[CONFIG] Updated from BLE JSON");
   return true;
 }
@@ -324,6 +350,24 @@ bool RuntimeConfigManager::loadFromFlash() {
 // ============================================================================
 
 uint32_t RuntimeConfigManager::_parseHexColor(const char* hex, uint8_t len) {
+  if (!hex || len == 0) return 0;
+
+  if (hex[0] == '#') {
+    hex++;
+    len--;
+  }
+  
+  // If 6-character hex string ("RRGGBB"), prepend "FF" alpha channel (0xFFRRGGBB)
+  char fullHex[9];
+  if (len == 6) {
+    fullHex[0] = 'F';
+    fullHex[1] = 'F';
+    memcpy(fullHex + 2, hex, 6);
+    fullHex[8] = '\0';
+    hex = fullHex;
+    len = 8;
+  }
+
   uint32_t result = 0;
   for (uint8_t i = 0; i < len && i < 8; i++) {
     result <<= 4;
@@ -394,7 +438,12 @@ int RuntimeConfigManager::_findJsonInt(const char* json, const char* key, int de
     int result = 0;
     bool found = false;
     while (*pos >= '0' && *pos <= '9') {
-      result = result * 10 + (*pos - '0');
+      int digit = *pos - '0';
+      if (result > (2147483647 - digit) / 10) {
+        result = 2147483647;
+        break;
+      }
+      result = result * 10 + digit;
       pos++;
       found = true;
     }

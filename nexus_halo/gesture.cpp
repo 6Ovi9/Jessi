@@ -7,10 +7,10 @@ GestureDetector::GestureDetector()
     flick_reset(true),
     gyro_threshold(GESTURE_GYRO_THS_DEFAULT),
     double_flick_window(GESTURE_DOUBLE_FLICK_WINDOW_DEFAULT),
+    triple_flick_window(GESTURE_TRIPLE_FLICK_WINDOW_DEFAULT),
+    tear_debounce(0),
     detected_gesture(GESTURE_NONE),
-    gesture_reported(true),
-    sequence_start_ms(0),
-    tear_debounce(0)
+    gesture_reported(true)
 {
 }
 
@@ -20,7 +20,7 @@ void GestureDetector::begin() {
   flick_reset = true;
   detected_gesture = GESTURE_NONE;
   gesture_reported = true;
-  sequence_start_ms = 0;
+  tear_debounce = 0;
 }
 
 void GestureDetector::update(uint32_t now_ms) {
@@ -64,9 +64,9 @@ void GestureDetector::update(uint32_t now_ms) {
       Serial.print("[GESTURE] Gyro flick detected: ");
       Serial.println(gyro_mag);
       
+      just_flicked_flag = true;
       if (flick_count == 0) {
         flick_count = 1;
-        sequence_start_ms = now_ms;
       } else {
         uint32_t gap = now_ms - prev_flick_ms;
         uint16_t allowed_gap = (flick_count == 1) ? double_flick_window : triple_flick_window;
@@ -88,7 +88,6 @@ void GestureDetector::update(uint32_t now_ms) {
       flick_reset = true;
     }
   }
-  
 }
 
 // BUG-029: reset() intentionally drops any gesture in progress.
@@ -99,11 +98,10 @@ void GestureDetector::reset() {
   detected_gesture = GESTURE_NONE;
   gesture_reported = true;
   last_flick_ms = 0;
-  sequence_start_ms = 0;
   flick_reset = true;
   tear_debounce = 0;
+  just_flicked_flag = false;
 }
-
 
 GestureType GestureDetector::getGesture() {
   if (gesture_reported || detected_gesture == GESTURE_NONE) {
@@ -114,3 +112,10 @@ GestureType GestureDetector::getGesture() {
   return detected_gesture;
 }
 
+bool GestureDetector::justFlicked() {
+  if (just_flicked_flag) {
+    just_flicked_flag = false;
+    return true;
+  }
+  return false;
+}

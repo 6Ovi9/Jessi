@@ -193,7 +193,9 @@ class _PairingScreenState extends State<PairingScreen>
       child: ElevatedButton.icon(
         onPressed: bleService.isScanning
             ? () => bleService.stopScan()
-            : () {
+            : () async {
+                bleService.disconnect();
+                await Future.delayed(const Duration(milliseconds: 300));
                 bleService.startScan();
                 _scanAnimController.repeat();
               },
@@ -288,8 +290,14 @@ class _PairingScreenState extends State<PairingScreen>
             device.name.contains('Jessi') ||
             device.name.contains('Couples');
 
+        final isConnectingThis = bleService.connectionState == BleConnectionState.connecting && 
+                                 bleService.connectedDeviceId == device.id;
+
         return GestureDetector(
           onTap: () {
+            // Detener el escaneo activo para liberar la antena Bluetooth antes de conectar
+            bleService.stopScan();
+
             // Conectar al dispositivo
             bleService.connectToDevice(device.id);
 
@@ -297,27 +305,38 @@ class _PairingScreenState extends State<PairingScreen>
             final repo = context.read<PartnerRepository>();
             repo.saveDeviceId(device.id);
           },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: isOurDevice
-                  ? LinearGradient(
-                      colors: [
-                        const Color(0xFF4488FF).withValues(alpha: 0.12),
-                        const Color(0xFF4488FF).withValues(alpha: 0.04),
-                      ],
-                    )
-                  : null,
-              color: isOurDevice ? null : Colors.white.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: isOurDevice
-                    ? const Color(0xFF4488FF).withValues(alpha: 0.2)
-                    : Colors.white.withValues(alpha: 0.04),
+          child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: isOurDevice && !isConnectingThis
+                    ? LinearGradient(
+                        colors: [
+                          const Color(0xFF4488FF).withValues(alpha: 0.12),
+                          const Color(0xFF4488FF).withValues(alpha: 0.04),
+                        ],
+                      )
+                    : null,
+                color: isOurDevice && !isConnectingThis ? null : Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isConnectingThis
+                      ? Colors.white.withValues(alpha: 0.8)
+                      : isOurDevice
+                          ? const Color(0xFF4488FF).withValues(alpha: 0.2)
+                          : Colors.white.withValues(alpha: 0.04),
+                  width: isConnectingThis ? 2.0 : 1.0,
+                ),
+                boxShadow: isConnectingThis
+                    ? [
+                        BoxShadow(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          blurRadius: 10,
+                          spreadRadius: 1,
+                        )
+                      ]
+                    : null,
               ),
-            ),
-            child: Row(
+              child: Row(
               children: [
                 // Icono
                 Container(
@@ -325,17 +344,27 @@ class _PairingScreenState extends State<PairingScreen>
                   height: 44,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isOurDevice
-                        ? const Color(0xFF4488FF).withValues(alpha: 0.15)
-                        : Colors.white.withValues(alpha: 0.06),
+                    color: isConnectingThis
+                        ? Colors.white.withValues(alpha: 0.15)
+                        : isOurDevice
+                            ? const Color(0xFF4488FF).withValues(alpha: 0.15)
+                            : Colors.white.withValues(alpha: 0.06),
                   ),
-                  child: Icon(
-                    isOurDevice ? Icons.watch_rounded : Icons.bluetooth_rounded,
-                    color: isOurDevice
-                        ? const Color(0xFF4488FF)
-                        : Colors.white.withValues(alpha: 0.4),
-                    size: 22,
-                  ),
+                  child: isConnectingThis
+                      ? const Padding(
+                          padding: EdgeInsets.all(12.0),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Icon(
+                          isOurDevice ? Icons.watch_rounded : Icons.bluetooth_rounded,
+                          color: isOurDevice
+                              ? const Color(0xFF4488FF)
+                              : Colors.white.withValues(alpha: 0.4),
+                          size: 22,
+                        ),
                 ),
                 const SizedBox(width: 14),
 

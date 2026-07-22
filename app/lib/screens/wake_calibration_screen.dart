@@ -97,7 +97,7 @@ class _WakeCalibrationScreenState extends State<WakeCalibrationScreen>
 
   void _onCalibProgress(int samplesDone) {
     if (!mounted) return;
-    if (samplesDone == 0xFF) {
+    if (samplesDone == 0xFF || samplesDone == 0xFD || samplesDone == 0xFE) {
       // Manual motion detection event notified by the watch!
       _simulateDetection();
       return;

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -103,6 +104,11 @@ class PartnerRepository extends ChangeNotifier {
 
       _config = WatchConfig.fromJson(data);
       _lastConfirmedServerConfig = _config;
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setString('cached_watch_config_ble', jsonEncode(_config!.toBleJson()));
+      }).catchError((e) {
+        print('[REPO] Error caching config on load: $e');
+      });
       print('[REPO] Config loaded: brightness=${_config!.brightnessPercent}%');
       if (!_disposed) notifyListeners();
       return _config!;
@@ -112,6 +118,11 @@ class PartnerRepository extends ChangeNotifier {
         if (_pendingRequests == 0) {
           _config = WatchConfig.defaultFor(_myUserId);
           _lastConfirmedServerConfig = _config;
+          SharedPreferences.getInstance().then((prefs) {
+            prefs.setString('cached_watch_config_ble', jsonEncode(_config!.toBleJson()));
+          }).catchError((e) {
+            print('[REPO] Error caching config on default: $e');
+          });
           if (!_disposed) notifyListeners();
         }
         return _config ?? WatchConfig.defaultFor(_myUserId);
@@ -153,6 +164,8 @@ class PartnerRepository extends ChangeNotifier {
         _lastSuccessfulNonce = currentNonce;
         _lastConfirmedServerConfig = config;
       }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('cached_watch_config_ble', jsonEncode(config.toBleJson()));
       print('[REPO] Config saved');
     } catch (e) {
       print('[REPO] Error saving config: $e');

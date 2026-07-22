@@ -6,9 +6,9 @@
     <!-- ════════════════════════════════════════════════════════════════════ -->
 
     <!-- Android 12+ (API 31+): nuevos permisos BLE granulares -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
     <!-- Android 11 y anteriores (API ≤30): permisos legacy BLE -->
     <uses-permission android:name="android.permission.BLUETOOTH"
@@ -115,11 +115,12 @@
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:foregroundServiceType="location|connectedDevice"
-            android:exported="false" />
+            android:exported="false"
+            android:stopWithTask="false" />
 
         <!-- Boot receiver — reiniciar el servicio tras reboot -->
         <receiver
-            android:name="com.pravera.flutter_foreground_task.receiver.BootReceiver"
+            android:name="com.pravera.flutter_foreground_task.service.RebootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

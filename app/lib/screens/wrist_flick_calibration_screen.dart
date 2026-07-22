@@ -70,7 +70,7 @@ class _WristFlickCalibrationScreenState extends State<WristFlickCalibrationScree
 
   void _onCalibProgress(int status) {
     if (!mounted) return;
-    if (status == 0xFE) {
+    if (status == 0xFE || status == 0xFD || status == 0xFF) {
       // ¡Evento de detección de giro de muñeca notificado por el reloj!
       _simulateDetection();
     }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -15,7 +16,58 @@ import '../models/location_model.dart';
 /// - Suscripción Realtime a eventos hápticos
 /// - Envío de eventos hápticos
 class SyncService extends ChangeNotifier {
+  Completer<bool>? _authWaitCompleter;
+
+  void resolveAuthWait(bool success, String? refreshToken) {
+    if (success && refreshToken != null) {
+      Supabase.instance.client.auth.setSession(refreshToken);
+    }
+    if (_authWaitCompleter != null && !_authWaitCompleter!.isCompleted) {
+      _authWaitCompleter!.complete(success);
+    }
+  }
+
+  Future<T> _withAuthRetry<T>(Future<T> Function() request) async {
+    try {
+      return await request();
+    } on PostgrestException catch (e) {
+      if (e.code == '401' || e.code == 'PGRST301') {
+        print(
+            '[SYNC] 401 Unauthorized, waiting for token_update or session_expired...');
+        if (_authWaitCompleter == null || _authWaitCompleter!.isCompleted) {
+          _authWaitCompleter = Completer<bool>();
+        }
+        final success = await _authWaitCompleter!.future
+            .timeout(const Duration(seconds: 10), onTimeout: () => false);
+        if (success) {
+          return await request(); // retry
+        } else {
+          throw Exception('Session expired');
+        }
+      }
+      rethrow;
+    } on AuthException catch (e) {
+      if (e.statusCode == '401') {
+        print(
+            '[SYNC] 401 Unauthorized, waiting for token_update or session_expired...');
+        if (_authWaitCompleter == null || _authWaitCompleter!.isCompleted) {
+          _authWaitCompleter = Completer<bool>();
+        }
+        final success = await _authWaitCompleter!.future
+            .timeout(const Duration(seconds: 10), onTimeout: () => false);
+        if (success) {
+          return await request(); // retry
+        } else {
+          throw Exception('Session expired');
+        }
+      }
+      rethrow;
+    }
+  }
   // ── Estado ──────────────────────────────────────────────────────────────
+
+  bool _isTailscaleConnected = false;
+  bool get isTailscaleConnected => _isTailscaleConnected;
 
   final _processedHapticIds = <String>{};
   static const _kMaxProcessedIds = 50;
@@ -34,6 +86,40 @@ class SyncService extends ChangeNotifier {
   /// ¿Está conectado a Supabase?
   bool _isConnected = false;
   bool get isConnected => _isConnected;
+
+  /// Verificación de Tailscale (subred 100.x.y.z o interfaces tun/tailscale)
+  Future<bool> checkTailscaleConnection() async {
+    try {
+      final interfaces = await NetworkInterface.list();
+      for (final interface in interfaces) {
+        final name = interface.name.toLowerCase();
+        if (name.contains('tun') || name.contains('tailscale')) {
+          _isTailscaleConnected = true;
+          notifyListeners();
+          return true;
+        }
+        for (final addr in interface.addresses) {
+          if (addr.address.startsWith('100.')) {
+            _isTailscaleConnected = true;
+            notifyListeners();
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[SYNC] Error checking Tailscale interfaces: $e');
+    }
+    _isTailscaleConnected = false;
+    notifyListeners();
+    return false;
+  }
+
+  void _updateConnectionStatus(bool connected) {
+    if (_isConnected != connected) {
+      _isConnected = connected;
+      notifyListeners();
+    }
+  }
 
   // ── Subscripciones ─────────────────────────────────────────────────────
 
@@ -60,6 +146,9 @@ class SyncService extends ChangeNotifier {
 
     print('[SYNC] Initialized as user: $_myUserId (partner: $partnerUserId)');
 
+    // Verificar interfaz de Tailscale
+    await checkTailscaleConnection();
+
     // Health check real: intentar consultar la tabla locations
     await checkConnection();
 
@@ -74,11 +163,11 @@ class SyncService extends ChangeNotifier {
   /// Actualiza [isConnected] según el resultado.
   Future<bool> checkConnection() async {
     try {
-      await Supabase.instance.client
+      await _withAuthRetry(() => Supabase.instance.client
           .from('locations')
           .select('user_id')
           .limit(1)
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 5)));
 
       _updateConnectionStatus(true);
       print('[SYNC] Health check: OK — Supabase reachable');
@@ -87,13 +176,6 @@ class SyncService extends ChangeNotifier {
       _updateConnectionStatus(false);
       print('[SYNC] Health check: FAILED — $e');
       return false;
-    }
-  }
-
-  void _updateConnectionStatus(bool connected) {
-    if (_isConnected != connected) {
-      _isConnected = connected;
-      notifyListeners();
     }
   }
 
@@ -120,7 +202,8 @@ class SyncService extends ChangeNotifier {
         pollingMode: pollingMode,
       );
 
-      await Supabase.instance.client.from('locations').upsert(location.toJson());
+      await _withAuthRetry(() =>
+          Supabase.instance.client.from('locations').upsert(location.toJson()));
 
       _updateConnectionStatus(true);
       print('[SYNC] Location uploaded: '
@@ -144,7 +227,7 @@ class SyncService extends ChangeNotifier {
       } catch (e) {
         print('[SYNC] Error unsubscribing location channel: $e');
       }
-      
+
       _locationChannel = Supabase.instance.client
           .channel('partner-location')
           .onPostgresChanges(
@@ -194,7 +277,7 @@ class SyncService extends ChangeNotifier {
       } catch (e) {
         print('[SYNC] Error unsubscribing haptic channel: $e');
       }
-      
+
       _hapticChannel = Supabase.instance.client
           .channel('haptic-events')
           .onPostgresChanges(
@@ -242,24 +325,25 @@ class SyncService extends ChangeNotifier {
   /// Se llama cuando el reloj notifica HAPTIC_TX (el usuario tocó el reloj).
   Future<void> sendHapticEvent() async {
     try {
-      await Supabase.instance.client.from('haptic_events').insert({
-        'from_user': _myUserId,
-        'to_user': partnerUserId,
-      });
+      await _withAuthRetry(
+          () => Supabase.instance.client.from('haptic_events').insert({
+                'from_user': _myUserId,
+                'to_user': partnerUserId,
+              }));
 
       print('[SYNC] Haptic event sent to partner $partnerUserId');
     } catch (e) {
       print('[SYNC] Error sending haptic event: $e');
+      rethrow;
     }
   }
 
   /// Marcar un evento háptico como consumido
   Future<void> _consumeHapticEvent(String eventId) async {
     try {
-      await Supabase.instance.client
+      await _withAuthRetry(() => Supabase.instance.client
           .from('haptic_events')
-          .update({'consumed': true})
-          .eq('id', eventId);
+          .update({'consumed': true}).eq('id', eventId));
 
       print('[SYNC] Haptic event $eventId consumed');
     } catch (e) {
@@ -274,11 +358,11 @@ class SyncService extends ChangeNotifier {
   /// Útil en el arranque, antes de que llegue la primera actualización Realtime.
   Future<LocationModel?> fetchPartnerLocation() async {
     try {
-      final data = await Supabase.instance.client
+      final data = await _withAuthRetry(() => Supabase.instance.client
           .from('locations')
           .select()
           .eq('user_id', partnerUserId)
-          .single();
+          .single());
 
       final location = LocationModel.fromJson(data);
 
@@ -302,7 +386,8 @@ class SyncService extends ChangeNotifier {
   /// Limpiar eventos hápticos antiguos consumidos
   Future<void> cleanupOldHapticEvents() async {
     try {
-      await Supabase.instance.client.rpc('cleanup_old_haptic_events');
+      await _withAuthRetry(
+          () => Supabase.instance.client.rpc('cleanup_old_haptic_events'));
       print('[SYNC] Old haptic events cleaned up');
     } catch (e) {
       print('[SYNC] Error cleaning up haptic events: $e');

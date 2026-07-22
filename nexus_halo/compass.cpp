@@ -465,7 +465,7 @@ void CompassController::calibrationUpdate() {
   if (raw_z < min_z) min_z = raw_z;
   if (raw_z > max_z) max_z = raw_z;
 
-  if ((millis() - calibration_start_ms) > 10000) {
+  if ((millis() - calibration_start_ms) > 15000) {
     calibrating = false;
     if (min_x == FLT_MAX || (max_x - min_x) < 10.0f) {
       return;

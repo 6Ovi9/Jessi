@@ -232,11 +232,14 @@ class _WatchPainter extends CustomPainter {
     final brightness = config.brightnessPercent / 100.0;
     const radarColor = Color(0xFFFFB900); // Ámbar cálido
 
-    // Calcular LED index desde bearing
+    // Calcular 3-LED beam simétrico desde bearing
     final safeBearing = bearing.isNaN ? 0.0 : bearing;
     final exactIndex = safeBearing / 360 * 12;
-    final ledIndex = exactIndex.floor() % 12;
-    final ledFraction = exactIndex - exactIndex.floor();
+    final centerIndex = (exactIndex + 0.5).floor() % 12;
+    final offset = exactIndex - (exactIndex + 0.5).floor();
+
+    final leftIndex = (centerIndex + 11) % 12;
+    final rightIndex = (centerIndex + 1) % 12;
 
     for (int i = 0; i < 12; i++) {
       final angle = (i / 12) * 2 * pi - pi / 2;
@@ -247,10 +250,12 @@ class _WatchPainter extends CustomPainter {
 
       double ledBrightness = 0;
 
-      if (i == ledIndex) {
-        ledBrightness = brightness * (1.0 - ledFraction);
-      } else if (i == (ledIndex + 1) % 12) {
-        ledBrightness = brightness * ledFraction;
+      if (i == centerIndex) {
+        ledBrightness = (brightness * (1.0 - (offset * offset * 0.8))).clamp(0.0, 1.0);
+      } else if (i == leftIndex) {
+        ledBrightness = (brightness * (0.45 - offset * 0.4)).clamp(0.0, 1.0);
+      } else if (i == rightIndex) {
+        ledBrightness = (brightness * (0.45 + offset * 0.4)).clamp(0.0, 1.0);
       }
 
       _drawLed(canvas, pos, ledRadius, radarColor, ledBrightness);

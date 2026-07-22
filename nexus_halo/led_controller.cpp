@@ -1,24 +1,22 @@
 #include "led_controller.h"
 
-#define PWM_TOP_VALUE   20
-#define PWM_T0H          5   // 5 ticks × 62.5ns = 312.5ns  (SK6812MINI-E-012 T0H spec: 250–400ns)
-#define PWM_T1H         15   // 15 ticks × 62.5ns = 937.5ns (SK6812MINI-E-012 T1H spec: 700–1000ns)
-#define PWM_RESET_WORDS 200  // 200 × 1.25µs = 250µs reset gap (spec: >80µs)
+#define PWM_TOP_VALUE 20
+#define PWM_T0H                                                                \
+  5 // 5 ticks × 62.5ns = 312.5ns  (SK6812MINI-E-012 T0H spec: 250–400ns)
+#define PWM_T1H                                                                \
+  15 // 15 ticks × 62.5ns = 937.5ns (SK6812MINI-E-012 T1H spec: 700–1000ns)
+#define PWM_RESET_WORDS 200 // 200 × 1.25µs = 250µs reset gap (spec: >80µs)
 
-// POLARITY: bit 15 of every PWM compare value selects "start HIGH, go LOW at count".
-// Without it, nRF52 PWM defaults to the opposite polarity (start LOW, go HIGH),
-// which inverts every data bit and drives the reset gap HIGH instead of LOW —
-// causing all LEDs to show wrong/no color. Adafruit's nRF52 NeoPixel driver ORs
-// this bit for exactly the same reason.
+// POLARITY: bit 15 of every PWM compare value selects "start HIGH, go LOW at
+// count". Without it, nRF52 PWM defaults to the opposite polarity (start LOW,
+// go HIGH), which inverts every data bit and drives the reset gap HIGH instead
+// of LOW — causing all LEDs to show wrong/no color. Adafruit's nRF52 NeoPixel
+// driver ORs this bit for exactly the same reason.
 #define PWM_POLARITY_BIT 0x8000
 
 LEDController::LEDController()
-  : power_on(false),
-    current_hour(0), current_minute(0), current_second(0), current_millis(0),
-    clock_connected(true), clock_last_update_ms(0),
-    radar_bearing(0), radar_active(false), distance_m(0), distance_active(false),
-    runtime_cfg(nullptr)
-{
+    : power_on(false), current_hour(0), current_minute(0), current_second(0),
+      current_millis(0), clock_last_update_ms(0), runtime_cfg(nullptr) {
   memset(pwm_buffer, 0, sizeof(pwm_buffer));
   memset(r_buf, 0, sizeof(r_buf));
   memset(g_buf, 0, sizeof(g_buf));
@@ -36,22 +34,25 @@ void LEDController::begin() {
 
   uint32_t pin_num = g_ADigitalPinMap[PIN_LED_RING_DATA];
 
-  // Use NRF_PWM1 — NRF_PWM0 may be claimed by the Adafruit BSP for analogWrite()
+  // Use NRF_PWM1 — NRF_PWM0 may be claimed by the Adafruit BSP for
+  // analogWrite()
   NRF_PWM1->ENABLE = 0; // Disable during config
 
-  NRF_PWM1->PSEL.OUT[0] = pin_num;        // Connect data pin
-  NRF_PWM1->PSEL.OUT[1] = 0x80000000UL;  // Disconnect (bit 31 = 1)
-  NRF_PWM1->PSEL.OUT[2] = 0x80000000UL;  // Disconnect
-  NRF_PWM1->PSEL.OUT[3] = 0x80000000UL;  // Disconnect
+  NRF_PWM1->PSEL.OUT[0] = pin_num;      // Connect data pin
+  NRF_PWM1->PSEL.OUT[1] = 0x80000000UL; // Disconnect (bit 31 = 1)
+  NRF_PWM1->PSEL.OUT[2] = 0x80000000UL; // Disconnect
+  NRF_PWM1->PSEL.OUT[3] = 0x80000000UL; // Disconnect
 
-  NRF_PWM1->MODE       = 0; // Up counting
-  NRF_PWM1->PRESCALER  = 0; // 16 MHz base clock (62.5 ns/tick)
+  NRF_PWM1->MODE = 0;                   // Up counting
+  NRF_PWM1->PRESCALER = 0;              // 16 MHz base clock (62.5 ns/tick)
   NRF_PWM1->COUNTERTOP = PWM_TOP_VALUE; // 20 ticks → 1.25 µs period (800 kHz)
-  NRF_PWM1->LOOP       = 0; // No loop
+  NRF_PWM1->LOOP = 0;                   // No loop
 
   // DECODER.LOAD values (nRF52840 PS §6.24):
-  //   0 = Common     — ONE halfword per period drives all 4 channels identically.
-  //                    Each halfword in pwm_buffer is one PWM period for the data pin.
+  //   0 = Common     — ONE halfword per period drives all 4 channels
+  //   identically.
+  //                    Each halfword in pwm_buffer is one PWM period for the
+  //                    data pin.
   //   1 = Grouped    — TWO halfwords per period.
   //   2 = Individual — FOUR halfwords per period.
   //   3 = Waveform   — FOUR halfwords per period; 4th overrides COUNTERTOP.
@@ -67,9 +68,20 @@ void LEDController::begin() {
   clear();
 }
 
+void LEDController::animateHapticTX() {
+  if (!power_on)
+    return;
+  uint32_t color =
+      runtime_cfg ? runtime_cfg->getConfig().colorHapticTx : COLOR_HAPTIC_TX;
+  uint8_t brightness_pct =
+      runtime_cfg ? runtime_cfg->getConfig().brightnessHapticTx : 100;
+  uint8_t b = _brightnessFromPct(brightness_pct);
+  fillWithBrightness(color, b);
+}
 
 void LEDController::setPower(bool on) {
-  if (power_on == on) return;
+  if (power_on == on)
+    return;
   if (on) {
     power_on = true;
     digitalWrite(PIN_LED_POWER, HIGH);
@@ -78,7 +90,7 @@ void LEDController::setPower(bool on) {
     show(); // Push a clean frame immediately on wake
   } else {
     clear();
-    show(); // Will now execute successfully via EasyDMA
+    show();                 // Will now execute successfully via EasyDMA
     delayMicroseconds(300); // Wait for DMA + reset gap
     power_on = false;
     digitalWrite(PIN_LED_POWER, LOW);
@@ -94,14 +106,17 @@ void LEDController::setPower(bool on) {
 // brighter than the lower half because human perception is nonlinear.
 // =============================================================================
 uint8_t LEDController::_brightnessFromPct(uint8_t pct) const {
-  if (pct > 100) pct = 100;
-  if (pct == 0) return 0;
-  bool use_gamma = runtime_cfg && runtime_cfg->getConfig().logarithmicBrightness;
+  if (pct > 100)
+    pct = 100;
+  if (pct == 0)
+    return 0;
+  bool use_gamma =
+      runtime_cfg && runtime_cfg->getConfig().logarithmicBrightness;
   if (use_gamma) {
-    float normalized    = pct / 100.0f;
+    float normalized = pct / 100.0f;
     float gamma_applied = powf(normalized, DUMMY_BRIGHTNESS_LOGARITHMIC);
     uint8_t b = (uint8_t)(gamma_applied * 255.0f + 0.5f);
-    return (b == 0) ? 1 : b;  // any nonzero % should show something
+    return (b == 0) ? 1 : b; // any nonzero % should show something
   }
   return (uint8_t)((pct * 255u) / 100u);
 }
@@ -110,13 +125,15 @@ void LEDController::_updatePWMBuffer() {
   int idx = 0;
   for (int i = 0; i < LED_COUNT; i++) {
     // GRB channel order: SK6812MINI-E expects Green, Red, Blue on the wire
-    uint8_t c[3] = { g_buf[i], r_buf[i], b_buf[i] };
+    uint8_t c[3] = {g_buf[i], r_buf[i], b_buf[i]};
     for (int ch = 0; ch < 3; ch++) {
       for (int bit = 7; bit >= 0; bit--) {
-        // PWM_POLARITY_BIT (0x8000) selects "start HIGH, go LOW at compare count".
-        // Without it the nRF52 PWM peripheral uses the opposite polarity and the
-        // entire SK6812 waveform is inverted — the root cause of LEDs never lighting.
-        pwm_buffer[idx++] = ((c[ch] & (1 << bit)) ? PWM_T1H : PWM_T0H) | PWM_POLARITY_BIT;
+        // PWM_POLARITY_BIT (0x8000) selects "start HIGH, go LOW at compare
+        // count". Without it the nRF52 PWM peripheral uses the opposite
+        // polarity and the entire SK6812 waveform is inverted — the root cause
+        // of LEDs never lighting.
+        pwm_buffer[idx++] =
+            ((c[ch] & (1 << bit)) ? PWM_T1H : PWM_T0H) | PWM_POLARITY_BIT;
       }
     }
   }
@@ -126,28 +143,40 @@ void LEDController::_updatePWMBuffer() {
   }
 }
 
+// Human eye photopic sensitivity curve compensation:
+// Boost Blue LED intensity by 1.5x using pure integer math so blue matches Red and Green
+static inline uint8_t boostBlue(uint8_t b) {
+  if (b == 0) return 0;
+  uint16_t boosted = ((uint16_t)b * 3) / 2;
+  return boosted > 255 ? 255 : (uint8_t)boosted;
+}
+
 void LEDController::show() {
-  if (!power_on) return;
+  if (!power_on)
+    return;
+
   _updatePWMBuffer();
 
   // Re-enable PWM — the SEQEND0→STOP shortcut stops it after each frame.
   // Must be done before writing SEQ registers.
   NRF_PWM1->ENABLE = 1;
 
-  NRF_PWM1->SEQ[0].PTR      = (uint32_t)(pwm_buffer);
-  NRF_PWM1->SEQ[0].CNT      = (LED_COUNT * 24 + PWM_RESET_WORDS); // count of 16-bit halfwords
-  NRF_PWM1->SEQ[0].REFRESH  = 0;
+  NRF_PWM1->SEQ[0].PTR = (uint32_t)(pwm_buffer);
+  NRF_PWM1->SEQ[0].CNT =
+      (LED_COUNT * 24 + PWM_RESET_WORDS); // count of 16-bit halfwords
+  NRF_PWM1->SEQ[0].REFRESH = 0;
   NRF_PWM1->SEQ[0].ENDDELAY = 0;
 
   NRF_PWM1->EVENTS_SEQEND[0] = 0;
-  NRF_PWM1->EVENTS_STOPPED   = 0;
+  NRF_PWM1->EVENTS_STOPPED = 0;
   NRF_PWM1->TASKS_SEQSTART[0] = 1;
 
   // Block until SEQEND fires (DMA done, last bit clocked out).
   // Actual frame time for 12 LEDs: 288 bits × 1.25µs + 250µs reset ≈ 0.61ms.
   // Safety timeout = 20ms.
   uint32_t deadline = millis() + 20;
-  while (!NRF_PWM1->EVENTS_SEQEND[0] && (int32_t)(millis() - deadline) < 0) {}
+  while (!NRF_PWM1->EVENTS_SEQEND[0] && (int32_t)(millis() - deadline) < 0) {
+  }
 
   if (!NRF_PWM1->EVENTS_SEQEND[0]) {
     // DMA never completed — peripheral mis-configured or buffer issue.
@@ -158,7 +187,8 @@ void LEDController::show() {
   // Wait for peripheral to actually stop (SHORTS wired SEQEND0→STOP).
   // Ensures pin is LOW/idle before the next frame starts.
   deadline = millis() + 5;
-  while (!NRF_PWM1->EVENTS_STOPPED && (int32_t)(millis() - deadline) < 0) {}
+  while (!NRF_PWM1->EVENTS_STOPPED && (int32_t)(millis() - deadline) < 0) {
+  }
 }
 
 void LEDController::clear() {
@@ -169,32 +199,40 @@ void LEDController::clear() {
 }
 
 void LEDController::setLED(uint8_t index, uint32_t color) {
-  if (index >= LED_COUNT || !power_on) return;
-  // LEDs are placed counter-clockwise on the PCB. We reverse the index so logical '1' is 1 o'clock.
-  uint8_t physical_index = (LED_COUNT - (index % LED_COUNT)) % LED_COUNT; 
+  if (index >= LED_COUNT || !power_on)
+    return;
+  // LEDs are placed counter-clockwise on the PCB. We reverse the index so
+  // logical '1' is 1 o'clock.
+  uint8_t physical_index = (LED_COUNT - (index % LED_COUNT)) % LED_COUNT;
   r_buf[physical_index] = getRed(color);
   g_buf[physical_index] = getGreen(color);
-  b_buf[physical_index] = getBlue(color);
+  b_buf[physical_index] = boostBlue(getBlue(color));
   w_buf[physical_index] = getAlpha(color);
 }
 
-void LEDController::setLEDBrightness(uint8_t index, uint32_t color, uint8_t brightness) {
-  if (index >= LED_COUNT || !power_on) return;
-  // LEDs are placed counter-clockwise on the PCB. We reverse the index so logical '1' is 1 o'clock.
-  uint8_t physical_index = (LED_COUNT - (index % LED_COUNT)) % LED_COUNT; 
+void LEDController::setLEDBrightness(uint8_t index, uint32_t color,
+                                     uint8_t brightness) {
+  if (index >= LED_COUNT || !power_on)
+    return;
+  // LEDs are placed counter-clockwise on the PCB. We reverse the index so
+  // logical '1' is 1 o'clock.
+  uint8_t physical_index = (LED_COUNT - (index % LED_COUNT)) % LED_COUNT;
   r_buf[physical_index] = (getRed(color) * brightness) / 255;
   g_buf[physical_index] = (getGreen(color) * brightness) / 255;
-  b_buf[physical_index] = (getBlue(color) * brightness) / 255;
+  b_buf[physical_index] = boostBlue((getBlue(color) * brightness) / 255);
   w_buf[physical_index] = (getAlpha(color) * brightness) / 255;
 }
 
-void LEDController::addLEDBrightness(uint8_t index, uint32_t color, uint8_t brightness) {
-  if (index >= LED_COUNT || !power_on) return;
-  // LEDs are placed counter-clockwise on the PCB. We reverse the index so logical '1' is 1 o'clock.
-  uint8_t physical_index = (LED_COUNT - (index % LED_COUNT)) % LED_COUNT; 
+void LEDController::addLEDBrightness(uint8_t index, uint32_t color,
+                                     uint8_t brightness) {
+  if (index >= LED_COUNT || !power_on)
+    return;
+  // LEDs are placed counter-clockwise on the PCB. We reverse the index so
+  // logical '1' is 1 o'clock.
+  uint8_t physical_index = (LED_COUNT - (index % LED_COUNT)) % LED_COUNT;
   uint16_t nr = r_buf[physical_index] + (getRed(color) * brightness) / 255;
   uint16_t ng = g_buf[physical_index] + (getGreen(color) * brightness) / 255;
-  uint16_t nb = b_buf[physical_index] + (getBlue(color) * brightness) / 255;
+  uint16_t nb = b_buf[physical_index] + boostBlue((getBlue(color) * brightness) / 255);
   uint16_t nw = w_buf[physical_index] + (getAlpha(color) * brightness) / 255;
   r_buf[physical_index] = nr > 255 ? 255 : nr;
   g_buf[physical_index] = ng > 255 ? 255 : ng;
@@ -203,18 +241,20 @@ void LEDController::addLEDBrightness(uint8_t index, uint32_t color, uint8_t brig
 }
 
 void LEDController::fillAll(uint32_t color) {
-  if (!power_on) return;
+  if (!power_on)
+    return;
   for (int i = 0; i < LED_COUNT; i++) {
     r_buf[i] = getRed(color);
     g_buf[i] = getGreen(color);
-    b_buf[i] = getBlue(color);
+    b_buf[i] = boostBlue(getBlue(color));
     w_buf[i] = getAlpha(color);
   }
   show();
 }
 
 void LEDController::fillWithBrightness(uint32_t color, uint8_t brightness) {
-  if (!power_on) return;
+  if (!power_on)
+    return;
   for (int i = 0; i < LED_COUNT; i++) {
     r_buf[i] = (getRed(color) * brightness) / 255;
     g_buf[i] = (getGreen(color) * brightness) / 255;
@@ -224,7 +264,8 @@ void LEDController::fillWithBrightness(uint32_t color, uint8_t brightness) {
   show();
 }
 
-void LEDController::updateClockTime(uint8_t hours, uint8_t minutes, uint8_t seconds, uint16_t millis_val) {
+void LEDController::updateClockTime(uint8_t hours, uint8_t minutes,
+                                    uint8_t seconds, uint16_t millis_val) {
   current_hour = hours % 12;
   current_minute = minutes;
   current_second = seconds;
@@ -233,8 +274,8 @@ void LEDController::updateClockTime(uint8_t hours, uint8_t minutes, uint8_t seco
 }
 
 void LEDController::showClock(bool connected) {
-  if (!power_on) return;
-  clock_connected = connected;
+  if (!power_on)
+    return;
   clear();
 
   // ---- Hours: one LED per hour (LED 0 = 12:xx, LED 6 = 6:xx) ----
@@ -247,25 +288,27 @@ void LEDController::showClock(bool connected) {
   // ---- Seconds: snap to the LED for the current 5-second tick ----
   // 12 LEDs x 5 s = 60 s.
   uint32_t elapsed_ms = millis() - clock_last_update_ms + current_millis;
-  uint32_t total_s    = (uint32_t)current_second + elapsed_ms / 1000;
-  int second_led      = (int)((total_s / 5) % LED_COUNT);
+  uint32_t total_s = (uint32_t)current_second + elapsed_ms / 1000;
+  int second_led = (int)((total_s / 5) % LED_COUNT);
 
   uint32_t color_hour, color_minute, color_second;
-  uint8_t brightness_pct = runtime_cfg ? runtime_cfg->getConfig().brightnessPercent : LED_CLOCK_BRIGHTNESS;
+  uint8_t brightness_pct = runtime_cfg
+                               ? runtime_cfg->getConfig().brightnessPercent
+                               : LED_CLOCK_BRIGHTNESS;
   uint8_t base_brightness = _brightnessFromPct(brightness_pct);
 
   if (runtime_cfg) {
-    const RuntimeConfig& cfg = runtime_cfg->getConfig();
-    color_hour   = connected ? cfg.colorHoursConnected   : cfg.colorHoursDisc;
+    const RuntimeConfig &cfg = runtime_cfg->getConfig();
+    color_hour = connected ? cfg.colorHoursConnected : cfg.colorHoursDisc;
     color_minute = connected ? cfg.colorMinutesConnected : cfg.colorMinutesDisc;
     color_second = connected ? cfg.colorSecondsConnected : cfg.colorSecondsDisc;
   } else {
-    color_hour   = connected ? COLOR_HOURS_CONNECTED   : COLOR_HOURS_DISC;
+    color_hour = connected ? COLOR_HOURS_CONNECTED : COLOR_HOURS_DISC;
     color_minute = connected ? COLOR_MINUTES_CONNECTED : COLOR_MINUTES_DISC;
     color_second = connected ? COLOR_SECONDS_CONNECTED : COLOR_SECONDS_DISC;
   }
 
-  addLEDBrightness(hour_led,   color_hour,   base_brightness);
+  addLEDBrightness(hour_led, color_hour, base_brightness);
   addLEDBrightness(minute_led, color_minute, base_brightness);
   addLEDBrightness(second_led, color_second, base_brightness);
 
@@ -273,57 +316,78 @@ void LEDController::showClock(bool connected) {
 }
 
 void LEDController::showRadar(float bearing_relative) {
-  if (!power_on) return;
-  radar_bearing = bearing_relative;
-  radar_active = true;
+  if (!power_on)
+    return;
   clear();
-  
-  bearing_relative = fmod(bearing_relative, 360.0f);
-  if (bearing_relative < 0) bearing_relative += 360.0f;
 
+  bearing_relative = fmod(bearing_relative, 360.0f);
+  if (bearing_relative < 0)
+    bearing_relative += 360.0f;
+
+  // Center LED position on the 12-LED ring (0.0 to 11.999...)
   float led_pos = (bearing_relative / 360.0f) * LED_COUNT;
-  if (led_pos >= LED_COUNT) led_pos = 0;
-  
-  int led_index = (int)floor(led_pos);
-  float fraction = led_pos - floor(led_pos);
-  int led_next = (led_index + 1) % LED_COUNT;
-  
-  uint8_t brightness_pct = runtime_cfg ? runtime_cfg->getConfig().brightnessPercent : LED_CLOCK_BRIGHTNESS;
+  int center_index = ((int)(led_pos + 0.5f)) % LED_COUNT;
+  float offset = led_pos - (float)((int)(led_pos + 0.5f)); // Sub-pixel fractional offset (-0.5 to +0.5)
+
+  int left_index = (center_index + 11) % LED_COUNT;
+  int right_index = (center_index + 1) % LED_COUNT;
+
+  uint8_t brightness_pct = runtime_cfg
+                               ? runtime_cfg->getConfig().brightnessPercent
+                               : LED_CLOCK_BRIGHTNESS;
   uint8_t base_brightness = _brightnessFromPct(brightness_pct);
-  uint8_t brightness_current = (uint8_t)(sqrtf(1.0f - fraction) * base_brightness);
-  uint8_t brightness_next = (uint8_t)(sqrtf(fraction) * base_brightness);
-  
-  setLEDBrightness(led_index, COLOR_RADAR, brightness_current);
-  setLEDBrightness(led_next, COLOR_RADAR, brightness_next);
+
+  uint32_t color_radar = runtime_cfg ? runtime_cfg->getConfig().colorRadar : COLOR_RADAR;
+
+  // Symmetrical 3-LED beam calculation:
+  // Center LED is peak brightness, left & right wing LEDs provide balanced symmetry and smooth rotation
+  float b_center = 1.0f - (offset * offset * 0.8f);
+  float b_left = 0.45f - offset * 0.4f;
+  float b_right = 0.45f + offset * 0.4f;
+
+  if (b_center < 0.0f) b_center = 0.0f;
+  if (b_left < 0.0f) b_left = 0.0f;
+  if (b_right < 0.0f) b_right = 0.0f;
+
+  setLEDBrightness(center_index, color_radar, (uint8_t)(b_center * base_brightness));
+  setLEDBrightness(left_index, color_radar, (uint8_t)(b_left * base_brightness));
+  setLEDBrightness(right_index, color_radar, (uint8_t)(b_right * base_brightness));
+
   show();
 }
 
 void LEDController::showDistance(uint32_t dist) {
-  if (!power_on) return;
-  this->distance_m = dist;
-  distance_active = true;
+  if (!power_on)
+    return;
   clear();
-  
+
   float d_km = dist / 1000.0f;
-  
-  uint8_t brightness_pct = runtime_cfg ? runtime_cfg->getConfig().brightnessPercent : LED_CLOCK_BRIGHTNESS;
+
+  uint8_t brightness_pct = runtime_cfg
+                               ? runtime_cfg->getConfig().brightnessPercent
+                               : LED_CLOCK_BRIGHTNESS;
   uint8_t base_brightness = _brightnessFromPct(brightness_pct);
 
   // Fallback defaults if runtime config is missing
-  uint8_t leds_near = 3, leds_prov = 3, leds_far = 2, leds_vfar = 2, leds_extr = 2;
-  uint32_t c_near = COLOR_DISTANCE_NEAR, c_prov = COLOR_DISTANCE_PROVINCE, c_far = COLOR_DISTANCE_FAR, c_vfar = COLOR_DISTANCE_VFAR, c_extr = COLOR_DISTANCE_EXTREME;
-  float t1 = DISTANCE_THRESHOLD_1_KM, t2 = DISTANCE_THRESHOLD_2_KM, t3 = DISTANCE_THRESHOLD_3_KM, t4 = DISTANCE_THRESHOLD_4_KM, t_max = DISTANCE_THRESHOLD_MAX_KM;
+  uint8_t leds_near = 3, leds_prov = 3, leds_far = 2, leds_vfar = 2,
+          leds_extr = 2;
+  uint32_t c_near = COLOR_DISTANCE_NEAR, c_prov = COLOR_DISTANCE_PROVINCE,
+           c_far = COLOR_DISTANCE_FAR, c_vfar = COLOR_DISTANCE_VFAR,
+           c_extr = COLOR_DISTANCE_EXTREME;
+  float t1 = DISTANCE_THRESHOLD_1_KM, t2 = DISTANCE_THRESHOLD_2_KM,
+        t3 = DISTANCE_THRESHOLD_3_KM, t4 = DISTANCE_THRESHOLD_4_KM,
+        t_max = DISTANCE_THRESHOLD_MAX_KM;
 
   if (runtime_cfg) {
-    const RuntimeConfig& cfg = runtime_cfg->getConfig();
+    const RuntimeConfig &cfg = runtime_cfg->getConfig();
     leds_near = cfg.ledsDistanceNear;
     leds_prov = cfg.ledsDistanceProv;
-    leds_far  = cfg.ledsDistanceFar;
+    leds_far = cfg.ledsDistanceFar;
     leds_vfar = cfg.ledsDistanceVFar;
     leds_extr = cfg.ledsDistanceExtr;
     c_near = cfg.colorDistanceNear;
     c_prov = cfg.colorDistanceProv;
-    c_far  = cfg.colorDistanceFar;
+    c_far = cfg.colorDistanceFar;
     c_vfar = cfg.colorDistanceVFar;
     c_extr = cfg.colorDistanceExtr;
     t1 = cfg.distThresh1Km;
@@ -334,7 +398,8 @@ void LEDController::showDistance(uint32_t dist) {
   }
 
   // Cap distance at t_max
-  if (d_km > t_max) d_km = t_max;
+  if (d_km > t_max)
+    d_km = t_max;
 
   // Determine which zone we are in and calculate how many LEDs to light up.
   // We light up all LEDs from previous zones fully.
@@ -343,7 +408,8 @@ void LEDController::showDistance(uint32_t dist) {
   uint32_t partial_color = 0;
 
   // Helper lambda or inline logic to fill previously passed zones
-  auto addZone = [&](float lower_bound, float upper_bound, uint8_t zone_leds, uint32_t zone_color) {
+  auto addZone = [&](float lower_bound, float upper_bound, uint8_t zone_leds,
+                     uint32_t zone_color) {
     if (d_km > lower_bound) {
       if (d_km >= upper_bound) {
         // Distance passed this zone completely
@@ -354,10 +420,11 @@ void LEDController::showDistance(uint32_t dist) {
         // Distance falls within this zone
         float fraction = (d_km - lower_bound) / (upper_bound - lower_bound);
         float leds_float = fraction * zone_leds;
-        
+
         // Ensure at least a faint glow if d_km > 0
-        if (dist > 0 && full_leds == 0 && leds_float < 0.1f) leds_float = 0.1f;
-        
+        if (dist > 0 && full_leds == 0 && leds_float < 0.1f)
+          leds_float = 0.1f;
+
         int filled = (int)leds_float;
         for (int i = 0; i < filled; i++) {
           setLEDBrightness(full_leds++, zone_color, base_brightness);
@@ -376,7 +443,8 @@ void LEDController::showDistance(uint32_t dist) {
 
   // Draw the partial LED if there's space
   if (full_leds < LED_COUNT && partial_brightness > 0.02f) {
-    setLEDBrightness(full_leds, partial_color, (uint8_t)(base_brightness * partial_brightness));
+    setLEDBrightness(full_leds, partial_color,
+                     (uint8_t)(base_brightness * partial_brightness));
   }
 
   show();
@@ -385,8 +453,11 @@ void LEDController::showDistance(uint32_t dist) {
 void LEDController::update(uint32_t now_ms) {}
 
 void LEDController::errorNoGPS() {
-  if (!power_on) return;
-  uint8_t brightness_pct = runtime_cfg ? runtime_cfg->getConfig().brightnessPercent : LED_CLOCK_BRIGHTNESS;
+  if (!power_on)
+    return;
+  uint8_t brightness_pct = runtime_cfg
+                               ? runtime_cfg->getConfig().brightnessPercent
+                               : LED_CLOCK_BRIGHTNESS;
   uint8_t b = _brightnessFromPct(brightness_pct);
 
   clear();
@@ -397,8 +468,11 @@ void LEDController::errorNoGPS() {
 }
 
 void LEDController::errorBattery() {
-  if (!power_on) return;
-  uint8_t brightness_pct = runtime_cfg ? runtime_cfg->getConfig().brightnessPercent : LED_CLOCK_BRIGHTNESS;
+  if (!power_on)
+    return;
+  uint8_t brightness_pct = runtime_cfg
+                               ? runtime_cfg->getConfig().brightnessPercent
+                               : LED_CLOCK_BRIGHTNESS;
   uint8_t b = _brightnessFromPct(brightness_pct);
 
   clear();
@@ -407,23 +481,35 @@ void LEDController::errorBattery() {
 }
 
 void LEDController::successOTA() {
-  if (!power_on) return;
-  uint8_t brightness_pct = runtime_cfg ? runtime_cfg->getConfig().brightnessPercent : LED_CLOCK_BRIGHTNESS;
+  if (!power_on)
+    return;
+  uint8_t brightness_pct = runtime_cfg
+                               ? runtime_cfg->getConfig().brightnessPercent
+                               : LED_CLOCK_BRIGHTNESS;
   uint8_t b = _brightnessFromPct(brightness_pct);
   fillWithBrightness(COLOR_SUCCESS, b);
 }
 
 void LEDController::animateHapticRX() {
-  if (!power_on) return;
-  fillWithBrightness(COLOR_HAPTIC_RX, 128);
+  if (!power_on)
+    return;
+  uint32_t color =
+      runtime_cfg ? runtime_cfg->getConfig().colorHapticRx : COLOR_HAPTIC_RX;
+  uint8_t brightness_pct =
+      runtime_cfg ? runtime_cfg->getConfig().brightnessHapticRx : 100;
+  uint8_t b = _brightnessFromPct(brightness_pct);
+  fillWithBrightness(color, b);
 }
 
 void LEDController::updateOTAProgress(uint8_t percentage) {
-  if (!power_on) return;
+  if (!power_on)
+    return;
   clear();
   int leds_to_fill = (percentage * LED_COUNT) / 100;
-  if (leds_to_fill > LED_COUNT) leds_to_fill = LED_COUNT;
+  if (leds_to_fill > LED_COUNT)
+    leds_to_fill = LED_COUNT;
   uint32_t color = (percentage < 100) ? COLOR_INFO : COLOR_SUCCESS;
-  for (int i = 0; i < leds_to_fill; i++) setLEDBrightness(i, color, 200);
+  for (int i = 0; i < leds_to_fill; i++)
+    setLEDBrightness(i, color, 200);
   show();
 }

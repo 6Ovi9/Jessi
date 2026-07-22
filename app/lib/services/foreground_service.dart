@@ -1,10 +1,9 @@
+import 'dart:async';
 import 'dart:isolate';
 import 'dart:ui';
 import 'package:flutter/widgets.dart';
-
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-import 'ble_service.dart';
-import 'location_service.dart';
+import 'background_engine.dart';
 
 /// Controlador del Android Foreground Service.
 ///
@@ -30,19 +29,13 @@ class ForegroundService {
         channelDescription: 'Servicio de seguimiento de ubicación y conexión BLE',
         channelImportance: NotificationChannelImportance.LOW,
         priority: NotificationPriority.LOW,
-        // Icono de la notificación (debe existir en res/drawable)
-        // iconData: const NotificationIconData(
-        //   resType: ResourceType.drawable,
-        //   resPrefix: ResourcePrefix.ic,
-        //   name: 'notification_silent',
-        // ),
       ),
       iosNotificationOptions: const IOSNotificationOptions(
         showNotification: false,
         playSound: false,
       ),
       foregroundTaskOptions: const ForegroundTaskOptions(
-        interval: 5000, // Se ejecuta cada 5 segundos (mínimo para el timer interno)
+        interval: 5000,
         isOnceEvent: false,
         autoRunOnBoot: true,
         autoRunOnMyPackageReplaced: true,
@@ -84,11 +77,21 @@ class ForegroundService {
     try {
       final result = await FlutterForegroundTask.stopService();
       print('[FG] Service stopped: $result');
-      return true;
+      return result;
     } catch (e) {
       print('[FG] Service stop failed: $e');
       return false;
     }
+  }
+
+  static SendPort? _backgroundSendPort;
+
+  static void setBackgroundSendPort(SendPort port) {
+    _backgroundSendPort = port;
+  }
+
+  static void sendCommand(String data) {
+    _backgroundSendPort?.send(data);
   }
 
   /// Actualizar el texto de la notificación.
@@ -98,10 +101,14 @@ class ForegroundService {
     String? title,
     String? text,
   }) async {
-    await FlutterForegroundTask.updateService(
-      notificationTitle: title ?? 'Nexus Halo activo',
-      notificationText: text ?? 'Conectado y rastreando ubicación',
-    );
+    try {
+      await FlutterForegroundTask.updateService(
+        notificationTitle: title ?? 'Nexus Halo activo',
+        notificationText: text ?? 'Conectado y rastreando ubicación',
+      );
+    } catch (e) {
+      print('[FG] Notification update failed: $e');
+    }
   }
 
   /// ¿Está el servicio ejecutándose?
@@ -113,9 +120,6 @@ class ForegroundService {
 /// Callback que se ejecuta cuando el Foreground Service arranca.
 ///
 /// Este es el punto de entrada del servicio en background.
-/// Nota: En flutter_foreground_task, el "trabajo" real se hace en el
-/// main isolate (la app Flutter), no aquí. Este callback es solo
-/// para el lifecycle del servicio Android.
 @pragma('vm:entry-point')
 void _startCallback() {
   FlutterForegroundTask.setTaskHandler(_ForegroundTaskHandler());
@@ -123,43 +127,56 @@ void _startCallback() {
 
 /// Handler del Foreground Service.
 ///
-/// Gestiona el lifecycle del servicio (start, repeat, destroy).
-/// El trabajo real de BLE/GPS/Sync se hace en los services de la app,
-/// no aquí. Este handler solo mantiene el servicio vivo.
+/// Gestiona el lifecycle del servicio (start, repeat, destroy) e inicializa
+/// el BackgroundEngine.
 class _ForegroundTaskHandler extends TaskHandler {
+  BackgroundEngine? _engine;
+  ReceivePort? _receivePort;
 
   @override
-  void onStart(DateTime timestamp, SendPort? sendPort) {
+  Future<void> onStart(DateTime timestamp, SendPort? sendPort) async {
     WidgetsFlutterBinding.ensureInitialized();
     DartPluginRegistrant.ensureInitialized();
     print('[FG] Background Isolate started at $timestamp');
+
+    _receivePort = ReceivePort();
+    sendPort?.send(_receivePort!.sendPort);
+
+    _engine = BackgroundEngine(sendPort: sendPort);
+
+    _receivePort?.listen((data) {
+      if (data is String) {
+        _engine?.onReceiveData(data);
+      }
+    });
+
+    try {
+      await _engine?.start();
+    } catch (e) {
+      print('[FG] Engine start failed: $e');
+    }
   }
 
   @override
   void onRepeatEvent(DateTime timestamp, SendPort? sendPort) {
-    // Este evento se dispara cada `interval` ms (5000ms = 5s) en un isolate secundario.
-    // Enviamos un mensaje al isolate principal (UI) para forzar que Android lo
-    // despierte (wake up) temporalmente y procese el Event Loop, permitiendo
-    // que los timers de LocationService y BleService sigan funcionando en background.
-    sendPort?.send('tick');
+    // onTick not used anymore
   }
 
   @override
-  void onDestroy(DateTime timestamp, SendPort? sendPort) {
+  Future<void> onDestroy(DateTime timestamp, SendPort? sendPort) async {
     print('[FG] Task handler destroyed at $timestamp');
+    _receivePort?.close();
+    _engine = null;
   }
 
   @override
   void onNotificationButtonPressed(String id) {
-    // Si añadimos botones a la notificación en el futuro
     print('[FG] Notification button pressed: $id');
   }
 
   @override
   void onNotificationPressed() {
-    // El usuario tocó la notificación — abrir la app
     print('[FG] Notification pressed — opening app');
     FlutterForegroundTask.launchApp();
   }
-
 }

@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:isolate';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -6,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'models/config_model.dart';
 import 'repositories/partner_repository.dart';
@@ -37,7 +40,7 @@ final String supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY']!;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   await dotenv.load(fileName: '.env');
 
   // Lock portrait orientation
@@ -58,6 +61,7 @@ void main() async {
     await Supabase.initialize(
       url: supabaseUrl,
       anonKey: supabaseAnonKey,
+      authOptions: const FlutterAuthClientOptions(autoRefreshToken: false),
     );
     debugPrint('[MAIN] Supabase initialized OK');
   } catch (e) {
@@ -141,10 +145,46 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
     super.initState();
     _partnerRepo = context.read<PartnerRepository>();
     FlutterForegroundTask.receivePort?.listen((message) {
-      if (message == 'tick') {
+      if (message is SendPort) {
+        fg.ForegroundService.setBackgroundSendPort(message);
+        debugPrint('[APP] Received background SendPort');
+      } else if (message == 'tick') {
         // El Isolate de UI se despierta brevemente para procesar este mensaje,
         // lo que permite que los timers de Dart (GPS, BLE reconnect) sigan corriendo.
         debugPrint('[APP] Received background tick');
+        return;
+      }
+
+      if (message is String) {
+        try {
+          final payload = jsonDecode(message) as Map<String, dynamic>;
+          final type = payload['type'];
+          final data = payload['payload'];
+
+          if (type == 'gps_update') {
+            if (mounted) {
+              final locationService = context.read<LocationService>();
+              final lat = (data['lat'] as num).toDouble();
+              final lng = (data['lng'] as num).toDouble();
+              locationService.updateCurrentLocation(lat, lng);
+            }
+          } else if (type == 'token_update' || type == 'session_expired') {
+            final syncService = context.read<SyncService>();
+            if (type == 'token_update') {
+              final refreshToken = data['refresh_token'];
+              syncService.resolveAuthWait(true, refreshToken);
+            } else {
+              syncService.resolveAuthWait(false, null);
+            }
+          } else {
+            if (mounted) {
+              final bleService = context.read<BleService>();
+              bleService.processBackgroundMessage(message);
+            }
+          }
+        } catch (e) {
+          debugPrint('[APP] Error routing background message: $e');
+        }
       }
     });
     _bootstrap();
@@ -161,7 +201,8 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
     if (_selectedUserRole == null) return;
     final partnerRepo = context.read<PartnerRepository>();
     final locationService = context.read<LocationService>();
-    final config = partnerRepo.config ?? WatchConfig.defaultFor(_selectedUserRole!);
+    final config =
+        partnerRepo.config ?? WatchConfig.defaultFor(_selectedUserRole!);
     locationService.setPollingIntervals(
       precisionS: config.gpsIntervalPrecisionS,
       nearS: config.gpsIntervalNearS,
@@ -172,9 +213,12 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
   }
 
   Future<void> _bootstrap() {
-    if (_bootstrapFuture != null) return _bootstrapFuture!;
+    _bootstrapFuture = null;
     _bootstrapFuture = _doBootstrap().catchError((e) {
       _bootstrapFuture = null;
+      setState(() {
+        _bootError = e.toString().replaceAll('Exception: ', '');
+      });
       throw e;
     });
     return _bootstrapFuture!;
@@ -212,7 +256,8 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       // 1. Inicializar repositorio y sync (con timeout)
       setState(() => _bootStep = 'Conectando al servidor...');
       try {
-        await partnerRepo.initialize(_selectedUserRole!)
+        await partnerRepo
+            .initialize(_selectedUserRole!)
             .timeout(const Duration(seconds: 8));
       } catch (e) {
         print('[APP] partnerRepo init failed (offline mode): $e');
@@ -221,7 +266,8 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
 
       setState(() => _bootStep = 'Sincronizando...');
       try {
-        await syncService.initialize(_selectedUserRole!)
+        await syncService
+            .initialize(_selectedUserRole!)
             .timeout(const Duration(seconds: 8));
         syncService.cleanupOldHapticEvents();
       } catch (e) {
@@ -231,7 +277,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
 
       // 2. Cargar configuración y aplicar intervalos de polling
       setState(() => _bootStep = 'Cargando configuración...');
-      
+
       partnerRepo.removeListener(_updateLocationIntervals);
       partnerRepo.addListener(_updateLocationIntervals);
       _updateLocationIntervals();
@@ -241,15 +287,20 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       // GPS → Supabase: subir ubicación propia
       locationService.onLocationUpdate = (position, bearing, distanceM) {
         try {
-          syncService.uploadLocation(position, locationService.currentMode.label);
+          syncService.uploadLocation(
+              position, locationService.currentMode.label);
         } catch (e) {
           print('[APP] Error uploading location: $e');
         }
 
         // GPS → BLE: enviar bearing y distancia al reloj
         if (bleService.connectionState == BleConnectionState.connected) {
-          bleService.writeBearing(bearing).catchError((e) => print('[BLE] Bearing error: $e'));
-          bleService.writeDistance(distanceM).catchError((e) => print('[BLE] Distance error: $e'));
+          bleService
+              .writeBearing(bearing)
+              .catchError((e) => print('[BLE] Bearing error: $e'));
+          bleService
+              .writeDistance(distanceM)
+              .catchError((e) => print('[BLE] Distance error: $e'));
         }
 
         // Actualizar notificación del Foreground Service
@@ -280,7 +331,8 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
 
       // 4. Obtener última ubicación conocida de la pareja
       try {
-        final lastPartnerLoc = await syncService.fetchPartnerLocation()
+        final lastPartnerLoc = await syncService
+            .fetchPartnerLocation()
             .timeout(const Duration(seconds: 5));
         if (lastPartnerLoc != null && lastPartnerLoc.isValid) {
           locationService.updatePartnerLocation(
@@ -292,17 +344,42 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
       }
       if (!mounted) return;
 
-      // 5. Iniciar Foreground Service
+      // 5. Pedir permisos antes de iniciar Foreground Service
+      setState(() => _bootStep = 'Solicitando permisos...');
+      
+      // Permisos BLE granulares (Android 12+) y Notificaciones
+      await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.bluetoothAdvertise,
+        Permission.notification,
+      ].request();
+
+      final hasLocPerms = await locationService.checkAndRequestPermissions();
+
+      if (!hasLocPerms) {
+        throw Exception('Faltan permisos requeridos de GPS.');
+      }
+
+      // 6. Iniciar Foreground Service
       setState(() => _bootStep = 'Iniciando servicios...');
       await fg.ForegroundService.start();
+
+      // Handshake: Solicitar estado completo al engine background
+      fg.ForegroundService.sendCommand(
+          jsonEncode({"type": "request_full_state", "payload": {}}));
+
       if (!mounted) return;
 
-      // 6. Iniciar GPS
+      // 7. Iniciar GPS
       await locationService.start();
       if (!mounted) return;
 
       // 7. Auto-reconectar BLE si hay dispositivo guardado
-      final savedDeviceId = prefs.getString('ble_device_id');
+      final savedDeviceId = prefs.getString('ble_mac_address');
+      if (_selectedUserRole != null) {
+        bleService.updateRole(_selectedUserRole!);
+      }
       if (savedDeviceId != null) {
         print('[APP] Auto-reconnecting to saved device: $savedDeviceId');
         bleService.connectToDevice(savedDeviceId);
@@ -343,7 +420,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
               ),
               const SizedBox(height: 24),
               const Text(
-                'Nexus Halo',
+                'Nexus Halo (v1.0.9)',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
@@ -365,7 +442,8 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
                   padding: const EdgeInsets.symmetric(horizontal: 32),
                   child: Text(
                     '⚠️ $_bootError',
-                    style: const TextStyle(fontSize: 12, color: Colors.redAccent),
+                    style:
+                        const TextStyle(fontSize: 12, color: Colors.redAccent),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -384,7 +462,6 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
     if (_showUserRoleSelection) {
       return _buildUserSelectionScreen();
     }
-
 
     return const HomeScreen();
   }
@@ -441,28 +518,30 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
                 textAlign: TextAlign.center,
               ),
               const Spacer(),
-              
+
               // Tarjeta Usuario A
               _buildRoleCard(
                 role: 'A',
                 title: 'Usuario A (Rol A)',
-                subtitle: 'Ambos miembros tienen exactamente las mismas funciones. Configura un móvil como Rol A y el otro como Rol B para sincronizarse.',
+                subtitle:
+                    'Ambos miembros tienen exactamente las mismas funciones. Configura un móvil como Rol A y el otro como Rol B para sincronizarse.',
                 icon: Icons.looks_one_rounded,
                 color: const Color(0xFF4488FF),
               ),
               const SizedBox(height: 16),
-              
+
               // Tarjeta Usuario B
               _buildRoleCard(
                 role: 'B',
                 title: 'Usuario B (Rol B)',
-                subtitle: 'Ambos miembros tienen exactamente las mismas funciones. Configura un móvil como Rol A y el otro como Rol B para sincronizarse.',
+                subtitle:
+                    'Ambos miembros tienen exactamente las mismas funciones. Configura un móvil como Rol A y el otro como Rol B para sincronizarse.',
                 icon: Icons.looks_two_rounded,
                 color: const Color(0xFF00CC88),
               ),
-              
+
               const Spacer(),
-              
+
               // Botón Confirmar
               ElevatedButton(
                 onPressed: _tempSelectedRole == null
@@ -473,8 +552,10 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
                         if (!mounted) return;
                         setState(() {
                           _showUserRoleSelection = false;
-                          _initialized = false;
+                          _selectedUserRole = _tempSelectedRole;
                         });
+
+                        _bootstrapFuture = null;
                         _bootstrap();
                       },
                 style: ElevatedButton.styleFrom(
@@ -527,9 +608,7 @@ class _AppBootstrapperState extends State<AppBootstrapper> {
               : Colors.white.withValues(alpha: 0.03),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected
-                ? color
-                : Colors.white.withValues(alpha: 0.08),
+            color: isSelected ? color : Colors.white.withValues(alpha: 0.08),
             width: isSelected ? 2 : 1,
           ),
           boxShadow: isSelected

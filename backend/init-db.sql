@@ -207,6 +207,11 @@ CREATE TABLE IF NOT EXISTS watch_config (
   -- Gyroscope wrist-flick threshold (dps)
   gyro_threshold            INT DEFAULT 260,
 
+  -- Flick feedback customization
+  enable_flick_feedback     BOOLEAN DEFAULT TRUE,
+  color_flick_feedback      TEXT DEFAULT 'FF00FFFF',
+  brightness_flick_feedback INT DEFAULT 100,
+
   -- Metadata
   updated_at                TIMESTAMPTZ DEFAULT NOW()
 );
@@ -248,35 +253,33 @@ ALTER TABLE watch_config
 -- ────────────────────────────────────────────────────────────────────────────
 -- 7. ROW LEVEL SECURITY (RLS)
 -- ────────────────────────────────────────────────────────────────────────────
--- Política simple: usuarios autenticados pueden leer y escribir todo.
--- En un sistema de 2 usuarios esto es suficiente.
--- Para producción con más usuarios, añadir filtro por user_id.
+-- 7. ROW LEVEL SECURITY (RLS)
+-- ────────────────────────────────────────────────────────────────────────────
 
 ALTER TABLE locations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE haptic_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE watch_config ENABLE ROW LEVEL SECURITY;
 
--- Políticas para usuarios autenticados
-CREATE POLICY "Authenticated users can read all locations"
-  ON locations FOR SELECT TO authenticated USING (true);
+-- Políticas para el par de 2 usuarios (anon y authenticated)
+CREATE POLICY "Allow 2-user pair location upsert"
+  ON locations FOR ALL TO anon, authenticated
+  USING (user_id IN ('A', 'B')) WITH CHECK (user_id IN ('A', 'B'));
 
-CREATE POLICY "Authenticated users can upsert any location"
-  ON locations FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow 2-user pair haptic select"
+  ON haptic_events FOR SELECT TO anon, authenticated
+  USING (true);
 
-CREATE POLICY "Authenticated users can read haptic events"
-  ON haptic_events FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow 2-user pair haptic insert"
+  ON haptic_events FOR INSERT TO anon, authenticated
+  WITH CHECK (from_user IN ('A', 'B') AND to_user IN ('A', 'B'));
 
-CREATE POLICY "Authenticated users can insert haptic events"
-  ON haptic_events FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Allow 2-user pair haptic update"
+  ON haptic_events FOR UPDATE TO anon, authenticated
+  USING (true) WITH CHECK (true);
 
-CREATE POLICY "Authenticated users can update haptic events"
-  ON haptic_events FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-
-CREATE POLICY "Authenticated users can read watch config"
-  ON watch_config FOR SELECT TO authenticated USING (true);
-
-CREATE POLICY "Authenticated users can update any config"
-  ON watch_config FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow 2-user pair watch config upsert"
+  ON watch_config FOR ALL TO anon, authenticated
+  USING (user_id IN ('A', 'B')) WITH CHECK (user_id IN ('A', 'B'));
 
 -- Permisos de tabla para los roles
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
@@ -286,10 +289,10 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 -- ────────────────────────────────────────────────────────────────────────────
 -- 8. REALTIME — Habilitar tablas para subscripción en tiempo real
 -- ────────────────────────────────────────────────────────────────────────────
--- Supabase Realtime escucha cambios en estas tablas via Postgres logical replication.
 
--- Nota: En Supabase self-hosted, la habilitación de Realtime se hace via
--- la publicación 'supabase_realtime'. Si no existe, la creamos.
+ALTER TABLE locations REPLICA IDENTITY FULL;
+ALTER TABLE haptic_events REPLICA IDENTITY FULL;
+ALTER TABLE watch_config REPLICA IDENTITY FULL;
 
 DO $$
 BEGIN

@@ -10,8 +10,9 @@
 // ============================================================================
 // This replaces the hardcoded #define colors when the user customizes via app.
 
-#define RUNTIME_CONFIG_MAGIC  0xCF82  // "CF" = config (v10) — added distance zone LED counts
-#define RUNTIME_CONFIG_FILE   "config.dat"
+#define RUNTIME_CONFIG_MAGIC                                                   \
+  0xCF84 // "CF" = config (v11) — added haptic TX/RX brightness
+#define RUNTIME_CONFIG_FILE "config.dat"
 
 struct __attribute__((packed)) RuntimeConfig {
   // 32-bit fields
@@ -23,20 +24,23 @@ struct __attribute__((packed)) RuntimeConfig {
   uint32_t colorSecondsDisc;
   uint32_t colorHapticTx;
   uint32_t colorHapticRx;
-  
+
   // 16-bit fields
   uint16_t gyroThreshold;
   uint16_t doubleFlickWindow;
   uint16_t tripleFlickWindowMs;
-  
+
   // 8-bit/bool fields
-  uint8_t  brightnessPercent;
-  uint16_t clockTimeoutS;   // was uint8_t — max 255s caused wrap on timeouts > 4min from app
-  uint16_t sleepTimeoutS;   // was uint8_t — same fix
-  uint8_t  lowBatteryThreshold;
-  uint8_t  hapticPatternIndex;
-  uint8_t  wakeThreshold;
-  bool     logarithmicBrightness;
+  uint8_t brightnessPercent;
+  uint16_t clockTimeoutS; // was uint8_t — max 255s caused wrap on timeouts >
+                          // 4min from app
+  uint16_t sleepTimeoutS; // was uint8_t — same fix
+  uint8_t lowBatteryThreshold;
+  uint8_t hapticPatternIndex;
+  uint8_t wakeThreshold;
+  bool logarithmicBrightness;
+  uint8_t brightnessHapticTx;
+  uint8_t brightnessHapticRx;
 
   // Radar / compass color
   uint32_t colorRadar;
@@ -61,50 +65,56 @@ struct __attribute__((packed)) RuntimeConfig {
   uint8_t ledsDistanceFar;
   uint8_t ledsDistanceVFar;
   uint8_t ledsDistanceExtr;
+
+  // Flick Feedback
+  uint32_t colorFlickFeedback;
+  uint8_t brightnessFlickFeedback;
+  bool enableFlickFeedback;
 };
 
 class RuntimeConfigManager {
 public:
   RuntimeConfigManager();
-  
+
   // Initialize: load from flash or use defaults
   void begin();
-  
+
   // Get current config (always valid — defaults if not loaded)
-  const RuntimeConfig& getConfig() const { return config; }
-  
+  const RuntimeConfig &getConfig() const { return config; }
+
   // Set brightness and save to flash
   void setBrightnessPercent(uint8_t pct) {
     config.brightnessPercent = pct;
     saveToFlash();
   }
-  
+
   void setWakeThreshold(uint8_t ths) {
     config.wakeThreshold = ths;
     saveToFlash();
   }
-  
+
   // Update config from BLE JSON string
   // Returns true if successfully parsed and saved
-  bool updateFromJson(const char* json);
-  
+  bool updateFromJson(const char *json);
+
   // Save current config to flash
   bool saveToFlash();
-  
+
   // Load config from flash (called by begin())
   bool loadFromFlash();
-  
+
   // Reset to factory defaults
   void resetDefaults();
 
 private:
   RuntimeConfig config;
   bool initialized;
-  
+
   // Parse helpers
-  static uint32_t _parseHexColor(const char* hex, uint8_t len);
-  static bool _findJsonString(const char* json, const char* key, char* out, uint8_t maxLen);
-  static int  _findJsonInt(const char* json, const char* key, int defaultVal);
+  static uint32_t _parseHexColor(const char *hex, uint8_t len);
+  static bool _findJsonString(const char *json, const char *key, char *out,
+                              uint8_t maxLen);
+  static int _findJsonInt(const char *json, const char *key, int defaultVal);
 };
 
 #endif // RUNTIME_CONFIG_H

@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v2.5 Firmware / v1.4.1 App] - 2026-07-18
+
+### Changed
+- **BLE Architecture**: Completely removed `flutter_reactive_ble` and rewrote `background_engine.dart` and `ble_service.dart` to rely exclusively on `flutter_blue_plus`.
+- **Characteristic Caching**: Implemented service discovery and caching in the background isolate to support `flutter_blue_plus` workflow.
+- **OTA Updates**: Updated `triggerOTA` in `ble_service.dart` to use `flutter_blue_plus`.
+
+### Unresolved
+- **Background Connection**: Despite completely migrating away from `flutter_reactive_ble` to fix the `EventChannel` collision, the background isolate connection remains broken. The watch appears in the UI but tapping it yields no connection success. This is a known, unresolved failure.
+
+
 ## [v2.5 Firmware / v1.4 App] - 2026-07-18
 
 ### Added

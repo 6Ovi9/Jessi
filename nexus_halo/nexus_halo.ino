@@ -15,7 +15,7 @@
   - Vibration motor via MOSFET (D9)
   - LED power MOSFET (D10)
 
-  Version: 2.5.0
+  Version: 2.6.0
   ============================================================================
 */
 
@@ -150,7 +150,7 @@ void setup() {
   while (!Serial && (millis() - t < 5000)) {
     delay(10);
   }
-  Serial.println("[SETUP] Nexus Halo Firmware v2.5.0");
+  Serial.println("[SETUP] Nexus Halo Firmware v2.5.1");
 
   // Turn off XIAO internal status LEDs (Active LOW) to prevent battery drain
   pinMode(LED_RED, OUTPUT);
@@ -466,14 +466,15 @@ void loop() {
   if (config_update_pending) {
     char local_json[1024];
     local_json[0] = '\0';
-    config_update_pending = false;
     if (xSemaphoreTake(ble_handler.json_mutex, portMAX_DELAY)) {
+      config_update_pending = false; // Reset inside mutex to avoid race conditions
       strlcpy(local_json, ble_handler.getConfigJson(), sizeof(local_json));
       xSemaphoreGive(ble_handler.json_mutex);
     }
     if (local_json[0] != '\0') {
       runtime_config.updateFromJson(local_json);
       Serial.println("[CONFIG] Config parsed and applied to RAM");
+      // Omit notifyConfig(local_json) to prevent BLE write-notify echo storms
 
       const RuntimeConfig &cfg = runtime_config.getConfig();
       static uint8_t last_applied_threshold = 0xFF;
@@ -733,8 +734,7 @@ void loop() {
 
   GestureType gesture = gesture_detector.getGesture();
 
-  // Notify app of gyro flick detection for live calibration feedback (0xFE =
-  // Gyro Flick)
+  // Notify app of gesture detection for live calibration feedback
   if (gesture != GESTURE_NONE && ble_connected) {
     ble_handler.notifyCalibStatus(0xFE, 0xFE);
   }
@@ -1152,7 +1152,7 @@ void handleStateRadarMode(bool is_entry, GestureType gesture) {
     // Show bearing as single LED pointing toward pareja, adjusting for watch
     // compass heading
     float relative_bearing =
-        current_bearing - (compass.isConnected() ? compass.getHeading() : 0.0f);
+        current_bearing + (compass.isConnected() ? compass.getHeading() : 0.0f);
     relative_bearing = fmod(relative_bearing + 360.0f, 360.0f);
     led_controller.showRadar(relative_bearing);
   }
@@ -1253,7 +1253,7 @@ void handleStateHapticTX(bool is_entry) {
   }
 
   uint32_t now = millis();
-  uint8_t brightness_pct = runtime_config.getConfig().brightnessPercent;
+  uint8_t brightness_pct = runtime_config.getConfig().brightnessHapticTx;
   uint8_t base_brightness = led_controller._brightnessFromPct(brightness_pct);
   uint32_t color_tx = runtime_config.getConfig().colorHapticTx;
 
